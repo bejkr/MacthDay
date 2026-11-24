@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Edge funkcie bežia v Dene, nie v Node/Next:
+    "supabase/functions/**",
   ]),
 ]);
 
