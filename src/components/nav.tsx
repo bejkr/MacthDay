@@ -8,6 +8,7 @@ import {
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/format";
 import { Modal } from "./ui/modal";
+import { useUnreadCount } from "./unread-store";
 
 type Item = { href: string; label: string; icon: LucideIcon };
 
@@ -47,8 +48,9 @@ function UnreadDot({ count }: { count: number }) {
 type ChromeProps = { groupName: string; seasonName: string | null; unread: number; adminBadge: number };
 
 /** Bočný panel pre desktop. */
-export function Sidebar({ groupName, seasonName, unread, adminBadge }: ChromeProps) {
+export function Sidebar({ groupName, seasonName, unread: serverUnread, adminBadge }: ChromeProps) {
   const pathname = usePathname();
+  const unread = useUnreadCount(serverUnread);
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-surface/60 px-4 py-6 lg:flex">
       <Link href="/prehlad" className="px-2">
@@ -86,8 +88,9 @@ export function Sidebar({ groupName, seasonName, unread, adminBadge }: ChromePro
 }
 
 /** Horná lišta na mobile: značka, partia a zvonček. */
-export function TopBar({ groupName, unread }: ChromeProps) {
+export function TopBar({ groupName, unread: serverUnread }: ChromeProps) {
   const pathname = usePathname();
+  const unread = useUnreadCount(serverUnread);
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line bg-bg/85 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-md lg:hidden">
       <Link href="/prehlad" className="flex min-w-0 items-baseline gap-2.5">
