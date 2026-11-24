@@ -24,7 +24,11 @@ async function Stats({ searchParams }: { searchParams: Search }) {
 
   const lite = new Map(players.map((p) => [p.id, toLite(p)]));
   // V rebríčkoch sú aktívni hráči a tí neaktívni, ktorí v danom období hrali.
-  const rows = stats.filter((s) => lite.has(s.player_id) && (lite.get(s.player_id)!.isActive || s.matches_played > 0));
+  // Zmazaní hráči ostávajú v histórii zápasov, ale v rebríčkoch nie.
+  const rows = stats.filter((s) => {
+    const p = lite.get(s.player_id);
+    return !!p && !p.isDeleted && (p.isActive || s.matches_played > 0);
+  });
 
   const board = (value: (s: PlayerStats) => number, extra?: (s: PlayerStats) => Partial<LeaderboardRow>): LeaderboardRow[] =>
     rows.map((s) => ({ player: lite.get(s.player_id)!, value: value(s), ...extra?.(s) }));

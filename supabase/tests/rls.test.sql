@@ -478,6 +478,50 @@ begin
   perform t.ok(not private.can_write_avatar(t.get('g2') || '/' || t.get('p_jano') || '-x.jpg'), 'storage: cudzia partia zakázaná');
 end $$;
 
+-- ═════════ 13. Zmazanie hráča ═════════
+do $$
+declare r jsonb; v_new uuid; v_goals int;
+begin
+  -- V tomto bode je adminom Fero; pôvodný admin (p_admin) je bežný hráč.
+  perform t.login('admin');
+  perform t.throws(format('select public.delete_player(%L)', t.get('p_jano')), 'forbidden', 'bežný hráč nemaže hráčov');
+
+  perform t.login('fero');
+  perform t.throws(format('select public.delete_player(%L)', t.get('p_fero')), 'cannot_delete_self', 'admin nezmaže sám seba');
+
+  -- Hráč bez histórie → úplné zmazanie
+  update public.groups set max_players = 30;
+  insert into public.players (group_id, nickname) values (t.uid('g1'), 'Nováčik') returning id into v_new;
+  r := public.delete_player(v_new);
+  perform t.ok(r ->> 'mode' = 'deleted', 'hráč bez histórie sa zmaže úplne');
+  perform t.ok(not exists (select 1 from public.players where id = v_new), 'riadok hráča zmizol');
+
+  -- Hráč s históriou → anonymizácia
+  select goals into v_goals from public.player_stats() where player_id = t.uid('p_jano');
+  r := public.delete_player(t.uid('p_jano'));
+  perform t.ok(r ->> 'mode' = 'anonymized', 'hráč s históriou sa anonymizuje');
+  perform t.ok((select nickname like 'Bývalý hráč %' and not is_active and deleted_at is not null and avatar_path is null
+                from public.players where id = t.uid('p_jano')), 'prezývka, fotka a aktivita sú anonymizované');
+  perform t.ok((select goals from public.player_stats() where player_id = t.uid('p_jano')) = v_goals, 'góly v histórii ostali');
+  perform t.ok(not exists (select 1 from public.player_devices where player_id = t.uid('p_jano')), 'zariadenia sú odpojené');
+  perform t.throws(format('select public.delete_player(%L)', t.get('p_jano')), 'not_found', 'zmazaný hráč sa nedá zmazať druhýkrát');
+
+  perform t.login('newphone');
+  perform t.ok(public.whoami() ->> 'state' = 'guest', 'zariadenie zmazaného hráča stratilo prístup');
+  perform t.ok((select count(*) from public.players) = 0, 'a nevidí žiadne údaje');
+
+  -- Prezývka je znova voľná
+  perform t.login('fero');
+  insert into public.players (group_id, nickname) values (t.uid('g1'), 'Jano');
+  perform t.ok(true, 'prezývka zmazaného hráča sa dá použiť znova');
+
+  -- Cudzia partia
+  perform t.login('other');
+  perform t.throws(format('select public.delete_player(%L)', t.get('p_fero')), 'not_found', 'admin cudzej partie nezmaže hráča');
+  perform t.anon();
+  perform t.throws(format('select public.delete_player(%L)', t.get('p_fero')), 'permission denied', 'anon nemá prístup');
+end $$;
+
 do $$
 begin
   perform t.root();

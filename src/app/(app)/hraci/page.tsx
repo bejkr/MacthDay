@@ -58,7 +58,7 @@ async function Players() {
   const [players, stats] = await Promise.all([getPlayers(), getStats(me.season?.id ?? null)]);
   const statOf = new Map(stats.map((s) => [s.player_id, s]));
   const active = players.filter((p) => p.is_active);
-  const inactive = players.filter((p) => !p.is_active);
+  const inactive = players.filter((p) => !p.is_active && !p.deleted_at);
 
   return (
     <div className="animate-rise">

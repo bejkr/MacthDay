@@ -87,9 +87,10 @@ async function Dashboard() {
   const toVote = votable.filter((_, i) => statuses[i].eligible && !statuses[i].my_vote);
 
   const last = played[0];
-  const scorer = top(stats, "goals");
-  const assister = top(stats, "assists");
-  const mvp = top(stats, "mvps");
+  const ranked = stats.filter((s) => lite.has(s.player_id) && !lite.get(s.player_id)!.isDeleted);
+  const scorer = top(ranked, "goals");
+  const assister = top(ranked, "assists");
+  const mvp = top(ranked, "mvps");
   const signupOpen = next ? now < Date.parse(next.signup_closes_at ?? next.starts_at) : false;
   const full = next?.max_players != null && going.length >= next.max_players;
 

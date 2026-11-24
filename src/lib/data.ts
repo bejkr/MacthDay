@@ -26,6 +26,8 @@ export type PlayerLite = {
   position: Enum<"player_position"> | null;
   skill: number;
   isActive: boolean;
+  /** Zmazaný (anonymizovaný) hráč – v histórii ostáva, inde sa nezobrazuje. */
+  isDeleted: boolean;
   role: Enum<"player_role">;
 };
 
@@ -44,6 +46,7 @@ export const toLite = (p: Player): PlayerLite => ({
   position: p.position,
   skill: p.skill,
   isActive: p.is_active,
+  isDeleted: !!p.deleted_at,
   role: p.role,
 });
 

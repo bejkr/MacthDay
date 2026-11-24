@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ArrowLeft, Award, ShieldCheck, Star } from "lucide-react";
-import { AvatarUploader, DeviceManager, PlayerEditButton } from "@/components/player-admin";
+import { AvatarUploader, DeletePlayerButton, DeviceManager, PlayerEditButton } from "@/components/player-admin";
 import { PlayerHistoryChart } from "@/components/player-history-chart";
 import { parseScope, ScopeTabs } from "@/components/scope-tabs";
 import { Badge, Card, CardHeader, PageSkeleton, PlayerStat } from "@/components/ui/card";
@@ -41,7 +41,10 @@ async function Profile({ params, searchParams }: Props) {
   const s = stats.find((row) => row.player_id === id);
   const balance = balances.find((b) => b.playerId === id);
   const myAuthId = claims?.data?.claims?.sub;
-  const canEditAvatar = me.isAdmin || (isMe && me.group.allow_avatar_edit);
+  const deleted = !!player.deleted_at;
+  // Zmazaný hráč sa už nedá upravovať – v histórii ostáva iba na čítanie.
+  const manage = me.isAdmin && !deleted;
+  const canEditAvatar = !deleted && (me.isAdmin || (isMe && me.group.allow_avatar_edit));
   const perMatch = s && s.matches_played > 0 ? (s.goals / s.matches_played).toFixed(2).replace(".", ",") : "–";
 
   return (
@@ -69,7 +72,7 @@ async function Profile({ params, searchParams }: Props) {
               </Badge>
             ) : null}
             {isMe ? <Badge>ty</Badge> : null}
-            {!player.is_active ? <Badge tone="danger">Neaktívny</Badge> : null}
+            {deleted ? <Badge tone="danger">Zmazaný hráč</Badge> : !player.is_active ? <Badge tone="danger">Neaktívny</Badge> : null}
           </div>
           <h1 className="display mt-2 truncate text-4xl text-ink">{player.nickname}</h1>
           <p className="mt-1.5 text-sm text-muted">
@@ -84,8 +87,8 @@ async function Profile({ params, searchParams }: Props) {
         </div>
       </Card>
 
-      {me.isAdmin ? (
-        <div className="mt-3">
+      {manage ? (
+        <div className="mt-3 flex flex-wrap gap-2.5">
           <PlayerEditButton
             key={player.updated_at}
             initial={{
@@ -100,6 +103,7 @@ async function Profile({ params, searchParams }: Props) {
               joinedOn: player.joined_on,
             }}
           />
+          {!isMe ? <DeletePlayerButton playerId={player.id} nickname={player.nickname} debt={balance?.debt ?? 0} /> : null}
         </div>
       ) : null}
 
@@ -181,7 +185,7 @@ async function Profile({ params, searchParams }: Props) {
         )}
       </Card>
 
-      {me.isAdmin ? (
+      {manage ? (
         <Card className="mt-4">
           <CardHeader title="Zariadenia a prístup" />
           <DeviceManager

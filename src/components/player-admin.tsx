@@ -3,7 +3,7 @@
 import { Camera, KeyRound, Pencil, Smartphone, Trash2, UserPlus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import {
-  createPlayerAction, createRecoveryLinkAction, removeAvatarAction, removeDeviceAction,
+  createPlayerAction, createRecoveryLinkAction, deletePlayerAction, removeAvatarAction, removeDeviceAction,
   updatePlayerAction, uploadAvatarAction,
 } from "@/lib/actions/players";
 import { AVATAR_COLORS, cn, POSITION_LABEL } from "@/lib/format";
@@ -291,5 +291,27 @@ export function DeviceManager({ playerId, nickname, groupName, devices }: { play
         </Button>
       )}
     </div>
+  );
+}
+
+/** Zmazanie hráča – tlačidlo patrí do profilu hráča, ktorého sa týka. */
+export function DeletePlayerButton({ playerId, nickname, debt }: { playerId: string; nickname: string; debt: number }) {
+  const { run, pending } = useAction(deletePlayerAction);
+  function confirmAndDelete() {
+    const lines = [
+      `Zmazať hráča ${nickname}?`,
+      "",
+      "• Stratí prístup do appky na všetkých zariadeniach.",
+      "• Zmaže sa jeho fotka, e-mail a prihlásenia na budúce termíny.",
+      "• Ak už hral zápasy alebo má záznamy v pokladnici, ostane v histórii ako „Bývalý hráč“, aby sedeli výsledky a súčty.",
+    ];
+    if (debt > 0) lines.push("", `Pozor: má nezaplatený dlh ${debt.toFixed(2).replace(".", ",")} €. V pokladnici ostane pod „Bývalý hráč“.`);
+    lines.push("", "Nedá sa to vrátiť.");
+    if (window.confirm(lines.join("\n"))) run(playerId);
+  }
+  return (
+    <Button variant="danger" loading={pending} onClick={confirmAndDelete} icon={<Trash2 className="size-4" />}>
+      Zmazať hráča
+    </Button>
   );
 }

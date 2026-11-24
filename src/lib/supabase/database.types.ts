@@ -43,6 +43,7 @@ export type Database = {
           avatar_color: string;
           is_active: boolean;
           joined_on: string;
+          deleted_at: string | null;
           created_at: string;
           updated_at: string;
         },
@@ -221,6 +222,7 @@ export type Database = {
       };
       revoke_invite_link: { Args: { p_link: string }; Returns: undefined };
       set_avatar: { Args: { p_player: string; p_path: string | null }; Returns: string | null };
+      delete_player: { Args: { p_player: string }; Returns: Json };
       start_new_season: { Args: { p_name: string; p_starts_on?: string }; Returns: string };
       set_attendance: {
         Args: { p_match: string; p_status: Database["public"]["Enums"]["attendance_status"] };

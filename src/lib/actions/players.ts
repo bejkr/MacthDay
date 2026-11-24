@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
+import { redirect } from "next/navigation";
 import sharp from "sharp";
 import { z } from "zod";
 import { requireMember } from "@/lib/auth";
@@ -137,4 +138,23 @@ export async function createRecoveryLinkAction(playerId: string): Promise<Action
     const { data, error } = await supabase.rpc("create_invite_link", { p_kind: "recovery", p_player: parsed.data });
     return error ? { error } : ok({ token: data });
   });
+}
+
+/**
+ * Zmazanie hráča. Bez histórie sa zmaže úplne, s históriou sa anonymizuje
+ * (rozhoduje databázová funkcia delete_player). Smie iba admin, nie sám seba.
+ */
+export async function deletePlayerAction(playerId: string): Promise<ActionResult> {
+  const parsed = parse(uuid, playerId);
+  if ("error" in parsed) return fail(parsed.error);
+  const result = await act(async (supabase) => {
+    const { data, error } = await supabase.rpc("delete_player", { p_player: parsed.data });
+    if (error) return { error };
+    const avatarPath = (data as { avatar_path?: string | null } | null)?.avatar_path;
+    if (avatarPath) await supabase.storage.from("avatars").remove([avatarPath]);
+    return ok();
+  });
+  if (!result.ok) return result;
+  // Profil zmazaného hráča už nemá zmysel znova vykresliť – rovno na zoznam hráčov.
+  redirect("/hraci");
 }

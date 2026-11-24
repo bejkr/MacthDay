@@ -27,6 +27,7 @@ const MESSAGES: Record<string, string> = {
   invalid_candidate: "Tento hráč v zápase nenastúpil.",
   already_voted: "V tomto zápase si už hlasoval.",
   last_admin: "Partia musí mať aspoň jedného aktívneho admina.",
+  cannot_delete_self: "Sám seba zmazať nemôžeš. Požiadaj iného admina.",
   avatar_edit_disabled: "Úpravu avatara admin vypol.",
   season_mismatch: "Sezóna nepatrí tejto partii.",
 };
