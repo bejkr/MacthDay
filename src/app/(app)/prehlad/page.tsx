@@ -10,7 +10,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState, PageSkeleton, PlayerStat, SectionTitle } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
 import {
-  byId, getAttendance, getGroupSummary, getMvpStatus, getPlayedMatches, getPlayers, getPolls, getStats,
+  byId, getAttendance, getGames, getGroupSummary, getMvpStatus, getPlayedMatches, getPlayers, getPolls, getStats,
   getTreasurySummary, getUnresolvedMatches, getUpcomingMatches, tick, toLite, type PlayerLite,
 } from "@/lib/data";
 import { formatDayMonth, formatTime, formatWeekday, relativeDay, timeLeft } from "@/lib/datetime";
@@ -70,7 +70,8 @@ async function Dashboard() {
     getTreasurySummary(),
     me.isAdmin ? getUnresolvedMatches() : Promise.resolve([]),
   ]);
-  const polls = await getPolls();
+  const [polls, lastGames] = await Promise.all([getPolls(), getGames(played.map((m) => m.id))]);
+  const gamesOf = (id: string) => lastGames.filter((g) => g.match_id === id).map((g) => ({ scoreA: g.score_a, scoreB: g.score_b }));
   // Ankety, z ktorých ešte nevznikol termín, sú na Prehľade vždy – celé, aby sa dalo hlasovať hneď tu.
   const activePolls = polls.filter((p) => p.status !== "converted");
 
@@ -185,9 +186,9 @@ async function Dashboard() {
                 <Vote className="size-5" aria-hidden />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-ink">Hlasuj za MVP zápasu</span>
+                <span className="block text-sm font-semibold text-ink">Hlasuj za MVP večera</span>
                 <span className="block text-xs text-muted">
-                  {formatDayMonth(m.starts_at)} · {m.score_a}:{m.score_b} · ostáva {timeLeft(m.mvp_voting_closes_at!)}
+                  {formatDayMonth(m.starts_at)} · {gamesOf(m.id).map((g) => `${g.scoreA}:${g.scoreB}`).join(", ")} · ostáva {timeLeft(m.mvp_voting_closes_at!)}
                 </span>
               </span>
               <ChevronRight className="size-5 shrink-0 text-primary" aria-hidden />
@@ -211,7 +212,7 @@ async function Dashboard() {
           <div>
             <SectionTitle action={<Link href="/zapasy" className="text-xs font-medium text-primary">Všetky zápasy</Link>}>Posledný zápas</SectionTitle>
             {last ? (
-              <MatchCard match={last} mvpName={last.mvp_player_id ? lite.get(last.mvp_player_id)?.nickname : null} />
+              <MatchCard match={last} games={gamesOf(last.id)} mvpName={last.mvp_player_id ? lite.get(last.mvp_player_id)?.nickname : null} />
             ) : (
               <p className="rounded-card border border-dashed border-line-strong px-4 py-6 text-center text-sm text-muted">Zatiaľ sa neodohral žiadny zápas.</p>
             )}
@@ -228,11 +229,11 @@ async function Dashboard() {
 
           <SectionTitle>Partia v číslach</SectionTitle>
           <div className="grid grid-cols-2 gap-2.5">
-            <PlayerStat label="Góly partie" value={summary.total_goals} hint={`${plural(summary.matches_played, "zápas", "zápasy", "zápasov")}`} accent />
+            <PlayerStat label="Góly partie" value={summary.total_goals} hint={`${plural(summary.games_played ?? summary.matches_played, "zápas", "zápasy", "zápasov")} · ${plural(summary.matches_played, "večer", "večery", "večerov")}`} accent />
             <PlayerStat
               label="Priemerná dochádzka"
               value={summary.avg_attendance_pct != null ? `${summary.avg_attendance_pct} %` : "–"}
-              hint={summary.avg_players != null ? `ø ${String(summary.avg_players).replace(".", ",")} hráča na zápas` : "zatiaľ bez zápasov"}
+              hint={summary.avg_players != null ? `ø ${String(summary.avg_players).replace(".", ",")} hráča na večer` : "zatiaľ bez zápasov"}
             />
             <Link href="/pokladnica" className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-3.5 transition-colors hover:border-line-strong">
               <div>

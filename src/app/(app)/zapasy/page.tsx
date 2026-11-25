@@ -6,7 +6,7 @@ import { parseScope, ScopeTabs } from "@/components/scope-tabs";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSkeleton } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
-import { getGoals, getPlayedMatches, getPlayers } from "@/lib/data";
+import { getGames, getGoals, getPlayedMatches, getPlayers } from "@/lib/data";
 import { plural } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Zápasy" };
@@ -18,7 +18,8 @@ async function Matches({ searchParams }: { searchParams: Search }) {
   const scope = parseScope((await searchParams).obdobie);
   const seasonId = scope === "sezona" ? (me.season?.id ?? null) : null;
   const [matches, players] = await Promise.all([getPlayedMatches(seasonId), getPlayers()]);
-  const goals = await getGoals(matches.map((m) => m.id));
+  const [goals, games] = await Promise.all([getGoals(matches.map((m) => m.id)), getGames(matches.map((m) => m.id))]);
+  const gamesOf = (id: string) => games.filter((g) => g.match_id === id).map((g) => ({ scoreA: g.score_a, scoreB: g.score_b }));
   const name = new Map(players.map((p) => [p.id, p.nickname]));
   // eslint-disable-next-line react-hooks/purity -- serverový komponent, čas požiadavky
   const now = Date.now();
@@ -39,7 +40,7 @@ async function Matches({ searchParams }: { searchParams: Search }) {
     <div className="animate-rise">
       <PageHeader
         title="Zápasy"
-        subtitle={matches.length > 0 ? `${plural(matches.length, "odohraný zápas", "odohrané zápasy", "odohraných zápasov")}` : undefined}
+        subtitle={matches.length > 0 ? `${plural(matches.length, "hrací večer", "hracie večery", "hracích večerov")} · ${plural(games.length, "zápas", "zápasy", "zápasov")}` : undefined}
         action={me.isAdmin ? <ButtonLink href="/zapasy/novy" icon={<Plus className="size-4" aria-hidden />}>Pridať zápas</ButtonLink> : undefined}
       />
       <ScopeTabs basePath="/zapasy" scope={scope} seasonName={me.season?.name ?? null} />
@@ -56,6 +57,7 @@ async function Matches({ searchParams }: { searchParams: Search }) {
             <MatchCard
               key={m.id}
               match={m}
+              games={gamesOf(m.id)}
               mvpName={m.mvp_player_id ? name.get(m.mvp_player_id) : null}
               votingOpen={m.mvp_mode === "vote" && !m.mvp_finalized_at && !!m.mvp_voting_closes_at && Date.parse(m.mvp_voting_closes_at) > now}
               scorers={scorers(m.id)}

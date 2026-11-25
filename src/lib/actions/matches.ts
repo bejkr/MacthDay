@@ -126,9 +126,16 @@ export async function saveLineupAction(input: z.input<typeof lineupSchema>): Pro
   );
 }
 
-// ───────────── Výsledok zápasu ─────────────
+// ───────────── Výsledok večera (jeden alebo viac zápasov) ─────────────
 const side = z.enum(["A", "B"]);
 const score = z.number().int().min(0, "Skóre nemôže byť záporné.").max(99, "Skóre je privysoké.");
+
+const gameSchema = z.object({
+  scoreA: score,
+  scoreB: score,
+  lineup: z.array(z.object({ playerId: uuid, team: side })).min(1, "Každý zápas potrebuje aspoň jedného hráča v zostave.").max(60),
+  goals: z.array(z.object({ team: side, scorerId: uuid, assistId: uuid.nullable(), isOwnGoal: z.boolean() })).max(198),
+});
 
 const resultSchema = z
   .object({
@@ -139,17 +146,12 @@ const resultSchema = z
     kind: z.enum(["internal", "external"]),
     teamAName: teamName,
     teamBName: teamName,
-    scoreA: score,
-    scoreB: score,
     resultNote: optionalText(500),
     mvpMode: z.enum(["vote", "manual", "none"]),
     mvpPlayerId: uuid.nullable(),
-    lineup: z.array(z.object({ playerId: uuid, team: side })).min(1, "Pridaj do zostavy aspoň jedného hráča.").max(60),
-    goals: z
-      .array(z.object({ team: side, scorerId: uuid, assistId: uuid.nullable(), isOwnGoal: z.boolean() }))
-      .max(198),
+    games: z.array(gameSchema).min(1, "Pridaj aspoň jeden zápas.").max(30, "Najviac 30 zápasov za večer."),
   })
-  .refine((v) => v.matchId || v.startsAt, { message: "Zadaj dátum a čas zápasu." })
+  .refine((v) => v.matchId || v.startsAt, { message: "Zadaj dátum a čas." })
   .refine((v) => v.mvpMode !== "manual" || v.mvpPlayerId, { message: "Vyber hráča, ktorý bol MVP." });
 
 export async function saveResultAction(input: z.input<typeof resultSchema>): Promise<ActionResult<{ id: string }>> {
@@ -157,7 +159,7 @@ export async function saveResultAction(input: z.input<typeof resultSchema>): Pro
   if ("error" in parsed) return fail(parsed.error);
   const v = parsed.data;
   const startsAt = v.startsAt ? localInputToIso(v.startsAt) : null;
-  if (v.startsAt && !startsAt) return fail("Zadaj dátum a čas zápasu.");
+  if (v.startsAt && !startsAt) return fail("Zadaj dátum a čas.");
 
   const payload: Json = {
     ...(startsAt ? { starts_at: startsAt } : {}),
@@ -166,17 +168,19 @@ export async function saveResultAction(input: z.input<typeof resultSchema>): Pro
     kind: v.kind,
     team_a_name: v.teamAName,
     team_b_name: v.teamBName,
-    score_a: v.scoreA,
-    score_b: v.scoreB,
     result_note: v.resultNote ?? "",
     mvp_mode: v.mvpMode,
     mvp_player_id: v.mvpMode === "manual" ? v.mvpPlayerId : null,
-    lineup: v.lineup.map((l) => ({ player_id: l.playerId, team: l.team })),
-    goals: v.goals.map((g) => ({
-      team: g.team,
-      scorer_id: g.scorerId,
-      assist_id: g.isOwnGoal ? null : g.assistId,
-      is_own_goal: g.isOwnGoal,
+    games: v.games.map((g) => ({
+      score_a: g.scoreA,
+      score_b: g.scoreB,
+      lineup: g.lineup.map((l) => ({ player_id: l.playerId, team: l.team })),
+      goals: g.goals.map((goal) => ({
+        team: goal.team,
+        scorer_id: goal.scorerId,
+        assist_id: goal.isOwnGoal ? null : goal.assistId,
+        is_own_goal: goal.isOwnGoal,
+      })),
     })),
   };
 

@@ -66,12 +66,12 @@ export function EventCard({ match, yesCount, myStatus }: EventProps) {
   );
 }
 
-type ScoreProps = { match: Match; size?: "md" | "lg" };
+type ScoreProps = { match: Match; size?: "md" | "lg"; score?: { a: number; b: number } };
 
 /** Výsledok: tím – skóre – tím. Víťazná strana je zvýraznená. */
-export function Scoreline({ match, size = "md" }: ScoreProps) {
-  const a = match.score_a ?? 0;
-  const b = match.score_b ?? 0;
+export function Scoreline({ match, size = "md", score }: ScoreProps) {
+  const a = score?.a ?? match.score_a ?? 0;
+  const b = score?.b ?? match.score_b ?? 0;
   const name = "min-w-0 flex-1 truncate font-semibold";
   const text = size === "lg" ? "text-base" : "text-sm";
   return (
@@ -89,13 +89,31 @@ export function Scoreline({ match, size = "md" }: ScoreProps) {
 
 type MatchCardProps = {
   match: Match;
+  /** Zápasy večera v poradí. */
+  games: { scoreA: number; scoreB: number }[];
   mvpName?: string | null;
   votingOpen?: boolean;
   scorers?: string;
 };
 
-/** Karta odohraného zápasu. */
-export function MatchCard({ match, mvpName, votingOpen, scorers }: MatchCardProps) {
+/** Výsledky všetkých zápasov večera ako rad čipov: „1. 3:2“, „2. 1:4“… */
+export function GameChips({ games }: { games: { scoreA: number; scoreB: number }[] }) {
+  return (
+    <ul className="flex flex-wrap justify-center gap-1.5">
+      {games.map((g, i) => (
+        <li key={i} className="flex items-baseline gap-1.5 rounded-lg border border-line bg-bg/50 px-2.5 py-1">
+          <span className="text-[0.6875rem] font-semibold text-muted">{i + 1}.</span>
+          <span className="num text-lg text-ink">
+            {g.scoreA}:{g.scoreB}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Karta odohraného večera – pri jednom zápase výsledok, pri viacerých výsledky všetkých zápasov. */
+export function MatchCard({ match, games, mvpName, votingOpen, scorers }: MatchCardProps) {
   return (
     <Link
       href={`/zapasy/${match.id}`}
@@ -115,7 +133,14 @@ export function MatchCard({ match, mvpName, votingOpen, scorers }: MatchCardProp
           </Badge>
         ) : null}
       </div>
-      <Scoreline match={match} />
+      {games.length > 1 ? (
+        <>
+          <p className="mb-2 text-center text-sm font-semibold text-ink">{games.length} zápasy · {match.team_a_name} vs {match.team_b_name}</p>
+          <GameChips games={games} />
+        </>
+      ) : (
+        <Scoreline match={match} score={games[0] ? { a: games[0].scoreA, b: games[0].scoreB } : undefined} />
+      )}
       {scorers ? <p className="mt-3 truncate text-center text-xs text-muted">{scorers}</p> : null}
     </Link>
   );

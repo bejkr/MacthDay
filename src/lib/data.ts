@@ -3,8 +3,7 @@ import { getSupabaseEnv } from "./env";
 import { describeError } from "./errors";
 import { createClient } from "./supabase/server";
 import type {
-  Attendance, Enum, Goal, LineupRow, Match, Notification, Player, PlayerHistoryRow,
-  PlayerStats, Season, TreasuryEntry,
+  Attendance, Enum, Game, Goal, LineupRow, Match, Notification, Player, PlayerHistoryRow, PlayerStats, Season, TreasuryEntry,
 } from "./supabase/database.types";
 
 // Všetky čítania idú cez tento súbor. Každý dotaz beží so session používateľa,
@@ -72,7 +71,10 @@ export async function getPlayerHistory(playerId: string, seasonId: string | null
 }
 
 export type GroupSummary = {
+  /** Odohrané večery (termíny s výsledkom). */
   matches_played: number;
+  /** Jednotlivé zápasy vo všetkých večeroch. */
+  games_played: number;
   total_goals: number;
   avg_players: number | null;
   avg_attendance_pct: number | null;
@@ -130,6 +132,13 @@ export async function getLineups(matchIds: string[]): Promise<LineupRow[]> {
   if (matchIds.length === 0) return [];
   const supabase = await createClient();
   return unwrap(supabase.from("match_player_stats").select("*").in("match_id", matchIds));
+}
+
+/** Zápasy večerov v poradí, v akom sa hrali. */
+export async function getGames(matchIds: string[]): Promise<Game[]> {
+  if (matchIds.length === 0) return [];
+  const supabase = await createClient();
+  return unwrap(supabase.from("games").select("*").in("match_id", matchIds).order("seq"));
 }
 
 export async function getGoals(matchIds: string[]): Promise<Goal[]> {

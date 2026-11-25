@@ -69,7 +69,7 @@ async function Stats({ searchParams }: { searchParams: Search }) {
     },
     {
       title: "Najvyššia dochádzka",
-      rows: board((s) => s.attendance_pct ?? 0, (s) => ({ display: `${s.attendance_pct ?? 0} %`, detail: `z ${s.eligible_matches} záp.` })),
+      rows: board((s) => s.attendance_pct ?? 0, (s) => ({ display: `${s.attendance_pct ?? 0} %`, detail: `z ${s.eligible_matches} več.` })),
       empty: "Dochádzka sa počíta z odohraných zápasov.",
     },
     { title: "Najviac odohraných zápasov", rows: board((s) => s.matches_played, (s) => ({ detail: `${s.wins}V ${s.draws}R ${s.losses}P` })), empty: "Zatiaľ žiadne zápasy." },

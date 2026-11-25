@@ -585,6 +585,76 @@ begin
   perform t.throws('select public.create_poll(''X'', null, ''[]'')', 'permission denied', 'anon nemôže vytvárať ankety');
 end $$;
 
+-- ═════════ 15. Viac zápasov za večer ═════════
+do $$
+declare
+  v_jano uuid; v_treti uuid; v_fero uuid := t.uid('p_fero'); v_admin uuid := t.uid('p_admin');
+  v_ev uuid; v_before_eligible int; v_before_evenings int; st jsonb; r record; v_payload jsonb;
+begin
+  perform t.root();
+  select id into v_jano from public.players where nickname = 'Jano' and deleted_at is null;
+  select id into v_treti from public.players where nickname = 'Tretí';
+  update public.players set joined_on = current_date - 30 where id in (v_jano, v_treti, v_fero, v_admin);
+
+  perform t.login('fero');
+  select eligible_matches into v_before_eligible from public.player_stats() where player_id = v_fero;
+  v_before_evenings := (public.group_summary() ->> 'matches_played')::int;
+
+  v_payload := jsonb_build_object(
+    'starts_at', (now() - interval '2 hours')::text, 'kind', 'internal', 'team_a_name', 'Biele', 'team_b_name', 'Farebné',
+    'mvp_mode', 'vote',
+    'games', jsonb_build_array(
+      jsonb_build_object('score_a', 2, 'score_b', 1,
+        'lineup', jsonb_build_array(
+          jsonb_build_object('player_id', v_fero, 'team', 'A'), jsonb_build_object('player_id', v_admin, 'team', 'A'),
+          jsonb_build_object('player_id', v_jano, 'team', 'B'), jsonb_build_object('player_id', v_treti, 'team', 'B')),
+        'goals', jsonb_build_array(
+          jsonb_build_object('team', 'A', 'scorer_id', v_fero, 'assist_id', v_admin),
+          jsonb_build_object('team', 'A', 'scorer_id', v_admin),
+          jsonb_build_object('team', 'B', 'scorer_id', v_treti))),
+      jsonb_build_object('score_a', 0, 'score_b', 3,
+        'lineup', jsonb_build_array(
+          jsonb_build_object('player_id', v_fero, 'team', 'A'), jsonb_build_object('player_id', v_jano, 'team', 'A'),
+          jsonb_build_object('player_id', v_admin, 'team', 'B')),
+        'goals', jsonb_build_array(
+          jsonb_build_object('team', 'B', 'scorer_id', v_admin),
+          jsonb_build_object('team', 'B', 'scorer_id', v_admin)))));
+
+  -- Strelec musí byť v tíme v DANOM zápase (Fero bol v 2. zápase za A, nie za B)
+  perform t.throws(format('select public.save_match_result(null, %L)',
+    jsonb_set(v_payload, '{games,1,goals,0,scorer_id}', to_jsonb(v_fero::text))), 'scorer_not_in_team',
+    'strelec sa kontroluje podľa zostavy konkrétneho zápasu');
+  perform t.ok((public.group_summary() ->> 'matches_played')::int = v_before_evenings, 'neúspešný zápis večera nič neuložil');
+
+  v_ev := public.save_match_result(null, v_payload);
+  perform t.ok((select count(*) from public.games where match_id = v_ev) = 2, 'večer má 2 zápasy');
+  perform t.ok((select score_a is null from public.matches where id = v_ev), 'pri viacerých zápasoch nie je skóre večera jedno číslo');
+
+  select * into r from public.player_stats() where player_id = v_fero;
+  perform t.ok(r.wins >= 1 and r.losses >= 1, 'výhry a prehry sa počítajú po zápasoch (Fero 1 výhra, 1 prehra v tento večer)');
+  perform t.ok(r.eligible_matches = v_before_eligible + 1, 'dochádzka počíta večer raz, nie po zápasoch');
+  select * into r from public.player_stats() where player_id = v_admin;
+  perform t.ok((select count(*) from public.player_history(v_admin) h where h.match_id = v_ev) = 2, 'história hráča má riadok za každý zápas');
+  perform t.ok((select sum(h.goals) from public.player_history(v_admin) h where h.match_id = v_ev) = 3, 'góly hráča zo všetkých zápasov večera');
+  perform t.ok((select matches_played from public.player_stats() where player_id = v_treti) = 1, 'hráč, čo hral 1 zápas z 2, má 1 odohraný zápas');
+  perform t.ok((public.group_summary() ->> 'games_played')::int >= (public.group_summary() ->> 'matches_played')::int + 1, 'súhrn rozlišuje večery a zápasy');
+
+  st := public.mvp_status(v_ev);
+  perform t.ok((st ->> 'voters')::int = 4, 'MVP večera: voliči sú všetci 4 hráči večera, každý raz');
+  perform t.ok((select count(*) from public.notifications where type = 'mvp_open' and link = '/zapasy/' || v_ev) = 1, 'upozornenie na MVP večera prišlo raz');
+
+  perform t.login('admin');
+  perform public.cast_mvp_vote(v_ev, v_fero);
+  perform t.ok((public.mvp_status(v_ev) ->> 'votes_cast')::int = 1, 'hráč večera môže hlasovať');
+
+  -- Oprava večera na jeden zápas
+  perform t.login('fero');
+  perform public.save_match_result(v_ev, jsonb_set(v_payload, '{games}', jsonb_build_array(v_payload -> 'games' -> 0)));
+  perform t.ok((select count(*) from public.games where match_id = v_ev) = 1
+           and (select score_a = 2 and score_b = 1 from public.matches where id = v_ev), 'oprava večera na 1 zápas uloží skóre');
+  perform t.ok((public.mvp_status(v_ev) ->> 'votes_cast')::int = 1, 'hlas hráča, ktorý ostal v zostave, sa zachoval');
+end $$;
+
 do $$
 begin
   perform t.root();

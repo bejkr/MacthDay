@@ -1,11 +1,12 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { Plus, Shuffle, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { saveResultAction } from "@/lib/actions/matches";
 import type { PlayerLite } from "@/lib/data";
 import { cn } from "@/lib/format";
+import { balanceTeams } from "@/lib/teams";
 import { PlayerAvatar } from "./player-avatar";
 import { Button } from "./ui/button";
 import { Card, CardHeader } from "./ui/card";
@@ -16,6 +17,14 @@ import { useAction } from "./use-action";
 type Side = "A" | "B";
 type Slot = Side | "none";
 type GoalDraft = { key: number; team: Side; scorerId: string; assistId: string; isOwnGoal: boolean };
+type GameDraft = { key: number; scoreA: number; scoreB: number; lineup: Record<string, Side>; goals: GoalDraft[] };
+
+export type ResultGameInitial = {
+  scoreA: number;
+  scoreB: number;
+  lineup: Record<string, Side>;
+  goals: { team: Side; scorerId: string; assistId: string; isOwnGoal: boolean }[];
+};
 
 export type ResultInitial = {
   startsAt: string;
@@ -24,13 +33,10 @@ export type ResultInitial = {
   kind: "internal" | "external";
   teamAName: string;
   teamBName: string;
-  scoreA: number;
-  scoreB: number;
   resultNote: string;
   mvpMode: "vote" | "manual" | "none";
   mvpPlayerId: string | null;
-  lineup: Record<string, Side>;
-  goals: Omit<GoalDraft, "key">[];
+  games: ResultGameInitial[];
 };
 
 type Props = {
@@ -43,60 +49,134 @@ type Props = {
   votingStarted: boolean;
 };
 
+/**
+ * Zápis výsledku hracieho večera. Večer má jeden alebo viac zápasov; každý má
+ * vlastnú zostavu (tímy sa medzi zápasmi miešajú), skóre a góly. MVP je za celý večer.
+ */
 export function ResultForm({ matchId, initial, players, seasons, voteHours, votingStarted }: Props) {
   const router = useRouter();
   const toast = useToast();
-  const nextKey = useRef(initial.goals.length + 1);
-  const [v, setV] = useState(initial);
-  const [goals, setGoals] = useState<GoalDraft[]>(() => initial.goals.map((g, i) => ({ ...g, key: i + 1 })));
-  const set = <K extends keyof ResultInitial>(key: K, value: ResultInitial[K]) => setV((prev) => ({ ...prev, [key]: value }));
+  // Kľúče pre React: počiatočné sa očíslujú priamo, nové pokračujú od 100 000.
+  const nextKey = useRef(100_000);
+  const key = () => nextKey.current++;
+
+  const [v, setV] = useState(() => {
+    const { games: _games, ...rest } = initial;
+    void _games;
+    return rest;
+  });
+  const [games, setGames] = useState<GameDraft[]>(() => {
+    let n = 1;
+    return initial.games.map((g) => ({ ...g, key: n++, goals: g.goals.map((goal) => ({ ...goal, key: n++ })) }));
+  });
+  const [active, setActive] = useState(0);
+  const set = <K extends keyof typeof v>(k: K, value: (typeof v)[K]) => setV((prev) => ({ ...prev, [k]: value }));
 
   const external = v.kind === "external";
-  const inTeam = (side: Side) => players.filter((p) => v.lineup[p.id] === side);
-  const lineupPlayers = players.filter((p) => v.lineup[p.id]);
+  const game = games[active];
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const inTeam = (g: GameDraft, s: Side) => players.filter((p) => g.lineup[p.id] === s);
+  const eveningPlayers = players.filter((p) => games.some((g) => g.lineup[p.id]));
 
   const { run, pending } = useAction(saveResultAction, {
-    success: "Výsledok uložený, štatistiky sú prepočítané.",
+    success: games.length > 1 ? "Večer uložený, štatistiky sú prepočítané." : "Výsledok uložený, štatistiky sú prepočítané.",
     onSuccess: (data) => router.replace(`/zapasy/${data.id}`),
   });
 
+  // ── úpravy aktívneho zápasu ──
+  const updateGame = (patch: (g: GameDraft) => GameDraft) =>
+    setGames((list) => list.map((g, i) => (i === active ? patch(g) : g)));
+
   function setSlot(playerId: string, slot: Slot) {
-    setV((prev) => {
-      const lineup = { ...prev.lineup };
+    updateGame((g) => {
+      const lineup = { ...g.lineup };
       if (slot === "none") delete lineup[playerId];
       else lineup[playerId] = slot;
-      return { ...prev, lineup, mvpPlayerId: slot === "none" && prev.mvpPlayerId === playerId ? null : prev.mvpPlayerId };
+      // góly, ktoré po zmene zostavy nedávajú zmysel, preč
+      const goals =
+        slot === "none" || g.lineup[playerId] !== slot
+          ? g.goals.filter((x) => x.scorerId !== playerId).map((x) => (x.assistId === playerId ? { ...x, assistId: "" } : x))
+          : g.goals;
+      return { ...g, lineup, goals };
     });
-    if (slot === "none") {
-      setGoals((list) => list.filter((g) => g.scorerId !== playerId).map((g) => (g.assistId === playerId ? { ...g, assistId: "" } : g)));
+    if (slot === "none" && v.mvpPlayerId === playerId && !games.some((g, i) => i !== active && g.lineup[playerId])) {
+      set("mvpPlayerId", null);
     }
   }
 
   function setKind(kind: "internal" | "external") {
-    setV((prev) => ({
-      ...prev,
-      kind,
-      // Proti súperovi hrajú všetci naši v jednom tíme.
-      lineup: kind === "external" ? Object.fromEntries(Object.keys(prev.lineup).map((id) => [id, "A" as Side])) : prev.lineup,
-    }));
-    if (kind === "external") setGoals((list) => list.filter((g) => g.team === "A" && !g.isOwnGoal));
+    set("kind", kind);
+    if (kind === "external") {
+      // Proti súperovi hrajú všetci naši za jeden tím.
+      setGames((list) =>
+        list.map((g) => ({
+          ...g,
+          lineup: Object.fromEntries(Object.keys(g.lineup).map((id) => [id, "A" as Side])),
+          goals: g.goals.filter((x) => x.team === "A" && !x.isOwnGoal),
+        })),
+      );
+    }
   }
 
   function addGoal(team: Side) {
-    setGoals((list) => [...list, { key: nextKey.current++, team, scorerId: "", assistId: "", isOwnGoal: false }]);
-    // Skóre nikdy nesmie byť nižšie ako počet zapísaných gólov.
-    const count = goals.filter((g) => g.team === team).length + 1;
-    if (team === "A" && count > v.scoreA) set("scoreA", count);
-    if (team === "B" && count > v.scoreB) set("scoreB", count);
+    updateGame((g) => {
+      const count = g.goals.filter((x) => x.team === team).length + 1;
+      return {
+        ...g,
+        goals: [...g.goals, { key: key(), team, scorerId: "", assistId: "", isOwnGoal: false }],
+        // skóre nikdy nesmie byť nižšie ako počet zapísaných gólov
+        scoreA: team === "A" ? Math.max(g.scoreA, count) : g.scoreA,
+        scoreB: team === "B" ? Math.max(g.scoreB, count) : g.scoreB,
+      };
+    });
+  }
+  const updateGoal = (k: number, patch: Partial<GoalDraft>) =>
+    updateGame((g) => ({ ...g, goals: g.goals.map((x) => (x.key === k ? { ...x, ...patch } : x)) }));
+  const removeGoal = (k: number) => updateGame((g) => ({ ...g, goals: g.goals.filter((x) => x.key !== k) }));
+
+  // ── zápasy večera ──
+  function addGame() {
+    const from = games[active] ?? games[games.length - 1];
+    setGames((list) => [...list, { key: key(), scoreA: 0, scoreB: 0, lineup: { ...(from?.lineup ?? {}) }, goals: [] }]);
+    setActive(games.length);
   }
 
-  const updateGoal = (key: number, patch: Partial<GoalDraft>) =>
-    setGoals((list) => list.map((g) => (g.key === key ? { ...g, ...patch } : g)));
-  const removeGoal = (key: number) => setGoals((list) => list.filter((g) => g.key !== key));
+  function removeGame(index: number) {
+    if (games.length <= 1) return;
+    if (!window.confirm(`Odstrániť zápas ${index + 1} aj s gólmi?`)) return;
+    setGames((list) => list.filter((_, i) => i !== index));
+    setActive((a) => Math.max(0, a >= index ? a - 1 : a));
+  }
+
+  /** Premieša hráčov aktívneho zápasu do dvoch vyrovnaných tímov (podľa hodnotení, s náhodou). */
+  function shuffleTeams() {
+    const ids = Object.keys(game.lineup);
+    if (ids.length < 2) {
+      toast.error("Na premiešanie treba aspoň dvoch hráčov v zostave.");
+      return;
+    }
+    if (game.goals.length > 0 && !window.confirm("Premiešanie zmaže góly zapísané v tomto zápase. Pokračovať?")) return;
+    const split = balanceTeams(
+      ids.map((id) => byId.get(id)).filter((p): p is PlayerLite => !!p).map((p) => ({ id: p.id, skill: p.skill, position: p.position })),
+    );
+    updateGame((g) => ({
+      ...g,
+      goals: [],
+      lineup: Object.fromEntries([...split.a.map((id) => [id, "A" as Side]), ...split.b.map((id) => [id, "B" as Side])]),
+    }));
+  }
 
   function submit() {
-    if (goals.some((g) => !g.scorerId)) {
-      toast.error("Pri každom góle vyber strelca alebo gól odstráň.");
+    const bad = games.findIndex((g) => g.goals.some((x) => !x.scorerId));
+    if (bad >= 0) {
+      setActive(bad);
+      toast.error(`V zápase ${bad + 1} vyber pri každom góle strelca alebo gól odstráň.`);
+      return;
+    }
+    const empty = games.findIndex((g) => Object.keys(g.lineup).length === 0);
+    if (empty >= 0) {
+      setActive(empty);
+      toast.error(`Zápas ${empty + 1} nemá nikoho v zostave.`);
       return;
     }
     run({
@@ -107,18 +187,21 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
       kind: v.kind,
       teamAName: v.teamAName,
       teamBName: v.teamBName,
-      scoreA: v.scoreA,
-      scoreB: v.scoreB,
       resultNote: v.resultNote,
       mvpMode: v.mvpMode,
       mvpPlayerId: v.mvpMode === "manual" ? v.mvpPlayerId : null,
-      lineup: Object.entries(v.lineup).map(([playerId, team]) => ({ playerId, team })),
-      goals: goals.map((g) => ({ team: g.team, scorerId: g.scorerId, assistId: g.assistId || null, isOwnGoal: g.isOwnGoal })),
+      games: games.map((g) => ({
+        scoreA: g.scoreA,
+        scoreB: g.scoreB,
+        lineup: Object.entries(g.lineup).map(([playerId, team]) => ({ playerId, team })),
+        goals: g.goals.map((x) => ({ team: x.team, scorerId: x.scorerId, assistId: x.assistId || null, isOwnGoal: x.isOwnGoal })),
+      })),
     });
   }
 
-  const goalsA = goals.filter((g) => g.team === "A").length;
-  const goalsB = goals.filter((g) => g.team === "B").length;
+  const goalsA = game.goals.filter((x) => x.team === "A").length;
+  const goalsB = game.goals.filter((x) => x.team === "B").length;
+  const lineupCount = Object.keys(game.lineup).length;
 
   return (
     <form
@@ -128,10 +211,10 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
         submit();
       }}
     >
-      {/* Základ */}
+      {/* Večer */}
       <Card className="flex flex-col gap-4 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Dátum a čas zápasu">
+          <Field label="Dátum a čas">
             {(id) => <Input id={id} type="datetime-local" value={v.startsAt} onChange={(e) => set("startsAt", e.target.value)} required />}
           </Field>
           <Field label="Sezóna">
@@ -148,9 +231,9 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
           {(id) => <Input id={id} value={v.location} onChange={(e) => set("location", e.target.value)} maxLength={120} />}
         </Field>
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-ink">Typ zápasu</span>
+          <span className="text-sm font-medium text-ink">Typ</span>
           <Segmented
-            label="Typ zápasu"
+            label="Typ"
             value={v.kind}
             onChange={setKind}
             options={[
@@ -160,27 +243,89 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={external ? "Náš tím" : "Názov tímu A"}>
+          <Field label={external ? "Náš tím" : "Tím A"} hint={external ? undefined : "napr. Biele"}>
             {(id) => <Input id={id} value={v.teamAName} onChange={(e) => set("teamAName", e.target.value)} maxLength={30} required />}
           </Field>
-          <Field label={external ? "Súper" : "Názov tímu B"}>
+          <Field label={external ? "Súper" : "Tím B"} hint={external ? undefined : "napr. Farebné"}>
             {(id) => <Input id={id} value={v.teamBName} onChange={(e) => set("teamBName", e.target.value)} maxLength={30} required />}
           </Field>
         </div>
       </Card>
 
-      {/* Zostavy */}
+      {/* Zápasy večera */}
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="eyebrow">Zápasy večera</h2>
+          <span className="text-xs text-muted">{games.length === 1 ? "1 zápas" : `${games.length} zápasy`}</span>
+        </div>
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1" role="tablist" aria-label="Zápasy večera">
+          {games.map((g, i) => (
+            <button
+              key={g.key}
+              type="button"
+              role="tab"
+              aria-selected={i === active}
+              onClick={() => setActive(i)}
+              className={cn(
+                "flex h-11 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors",
+                i === active ? "border-primary bg-primary/10 text-ink" : "border-line bg-surface text-muted hover:text-ink",
+              )}
+            >
+              Zápas {i + 1}
+              <span className={cn("num text-base", i === active ? "text-primary" : "text-ink")}>
+                {g.scoreA}:{g.scoreB}
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={addGame}
+            disabled={games.length >= 30}
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-dashed border-line-strong px-3 text-sm font-semibold text-primary disabled:opacity-40"
+          >
+            <Plus className="size-4" aria-hidden />
+            Ďalší zápas
+          </button>
+        </div>
+        {games.length > 1 || active > 0 ? (
+          <p className="mt-1.5 text-xs text-muted">Nový zápas prevezme zostavu z práve otvoreného – uprav ju alebo tímy premiešaj.</p>
+        ) : null}
+      </div>
+
+      {/* Zostava aktívneho zápasu */}
       <Card>
-        <CardHeader title={external ? "Kto nastúpil" : "Zostavy"} action={<span className="text-xs text-muted">{lineupPlayers.length} hráčov</span>} />
-        <ul className="flex flex-col gap-2.5 p-4">
+        <CardHeader
+          title={external ? `Zápas ${active + 1} · kto hral` : `Zápas ${active + 1} · tímy`}
+          action={
+            <div className="flex items-center gap-1">
+              {!external ? (
+                <Button variant="ghost" size="sm" onClick={shuffleTeams} icon={<Shuffle className="size-4" />}>
+                  Premiešať
+                </Button>
+              ) : null}
+              {games.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => removeGame(active)}
+                  className="flex size-9 items-center justify-center rounded-lg text-muted hover:bg-elevated hover:text-danger"
+                  aria-label={`Odstrániť zápas ${active + 1}`}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              ) : null}
+            </div>
+          }
+        />
+        <p className="px-4 pt-1 text-xs text-muted">{lineupCount} v zostave</p>
+        <ul className="flex flex-col gap-2.5 p-4 pt-3">
           {players.map((p) => (
             <li key={p.id} className="flex items-center gap-2.5">
-              <PlayerAvatar nickname={p.nickname} avatarUrl={p.avatarUrl} color={p.avatarColor} size="sm" dimmed={!v.lineup[p.id]} />
-              <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", v.lineup[p.id] ? "text-ink" : "text-muted")}>{p.nickname}</span>
+              <PlayerAvatar nickname={p.nickname} avatarUrl={p.avatarUrl} color={p.avatarColor} size="sm" dimmed={!game.lineup[p.id]} />
+              <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", game.lineup[p.id] ? "text-ink" : "text-muted")}>{p.nickname}</span>
               <Segmented<Slot>
                 className="w-40 shrink-0"
-                label={`Tím hráča ${p.nickname}`}
-                value={v.lineup[p.id] ?? "none"}
+                label={`Tím hráča ${p.nickname} v zápase ${active + 1}`}
+                value={game.lineup[p.id] ?? "none"}
                 onChange={(slot) => setSlot(p.id, slot)}
                 options={
                   external
@@ -193,31 +338,31 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
         </ul>
       </Card>
 
-      {/* Skóre */}
+      {/* Skóre aktívneho zápasu */}
       <Card className="p-4">
-        <h2 className="eyebrow mb-4">Výsledok</h2>
+        <h2 className="eyebrow mb-4">Zápas {active + 1} · výsledok</h2>
         <div className="flex items-start justify-around gap-2">
           <div className="flex min-w-0 flex-col items-center gap-3">
             <span className="max-w-full truncate text-sm font-semibold text-ink">{v.teamAName || "Tím A"}</span>
-            <Stepper label={`Skóre ${v.teamAName}`} size="lg" value={v.scoreA} min={goalsA} onChange={(n) => set("scoreA", n)} />
+            <Stepper label={`Skóre ${v.teamAName}`} size="lg" value={game.scoreA} min={goalsA} onChange={(n) => updateGame((g) => ({ ...g, scoreA: n }))} />
           </div>
           <span className="num mt-9 text-5xl text-muted/40" aria-hidden>:</span>
           <div className="flex min-w-0 flex-col items-center gap-3">
             <span className="max-w-full truncate text-sm font-semibold text-ink">{v.teamBName || "Tím B"}</span>
-            <Stepper label={`Skóre ${v.teamBName}`} size="lg" value={v.scoreB} min={goalsB} onChange={(n) => set("scoreB", n)} />
+            <Stepper label={`Skóre ${v.teamBName}`} size="lg" value={game.scoreB} min={goalsB} onChange={(n) => updateGame((g) => ({ ...g, scoreB: n }))} />
           </div>
         </div>
       </Card>
 
-      {/* Góly */}
+      {/* Góly aktívneho zápasu */}
       <Card>
-        <CardHeader title="Strelci a asistencie" />
+        <CardHeader title={`Zápas ${active + 1} · strelci a asistencie`} />
         <div className="flex flex-col gap-3 p-4">
-          {goals.length === 0 ? <p className="text-sm text-muted">Pridaj góly, aby sa hráčom započítali do štatistík.</p> : null}
-          {goals.map((g, index) => {
+          {game.goals.length === 0 ? <p className="text-sm text-muted">Pridaj góly, aby sa hráčom započítali do štatistík.</p> : null}
+          {game.goals.map((g, index) => {
             const scoringTeam = g.isOwnGoal ? (g.team === "A" ? "B" : "A") : g.team;
-            const scorers = inTeam(scoringTeam);
-            const assistants = inTeam(g.team).filter((p) => p.id !== g.scorerId);
+            const scorers = inTeam(game, scoringTeam);
+            const assistants = inTeam(game, g.team).filter((p) => p.id !== g.scorerId);
             return (
               <div key={g.key} className="rounded-2xl border border-line bg-bg/50 p-3">
                 <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -257,11 +402,11 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
             );
           })}
           <div className="flex gap-2">
-            <Button variant="secondary" className="min-w-0 flex-1" onClick={() => addGoal("A")} disabled={inTeam("A").length === 0 && inTeam("B").length === 0} icon={<Plus className="size-4" />}>
+            <Button variant="secondary" className="min-w-0 flex-1" onClick={() => addGoal("A")} disabled={lineupCount === 0} icon={<Plus className="size-4" />}>
               <span className="truncate">Gól {v.teamAName}</span>
             </Button>
             {!external ? (
-              <Button variant="secondary" className="min-w-0 flex-1" onClick={() => addGoal("B")} disabled={inTeam("A").length === 0 && inTeam("B").length === 0} icon={<Plus className="size-4" />}>
+              <Button variant="secondary" className="min-w-0 flex-1" onClick={() => addGoal("B")} disabled={lineupCount === 0} icon={<Plus className="size-4" />}>
                 <span className="truncate">Gól {v.teamBName}</span>
               </Button>
             ) : null}
@@ -270,9 +415,9 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
         </div>
       </Card>
 
-      {/* MVP */}
+      {/* MVP večera */}
       <Card className="flex flex-col gap-3 p-4">
-        <h2 className="eyebrow">MVP zápasu</h2>
+        <h2 className="eyebrow">MVP večera</h2>
         <Segmented
           label="Spôsob určenia MVP"
           value={v.mvpMode}
@@ -287,14 +432,14 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
           <p className="text-xs text-muted">
             {votingStarted
               ? "Hlasovanie už bolo otvorené – hlasy hráčov, ktorí ostali v zostave, sa zachovajú."
-              : `Po uložení sa hráčom zo zostavy otvorí hlasovanie na ${voteHours} h a príde im upozornenie.`}
+              : `Po uložení sa hráčom, čo hrali aspoň jeden zápas, otvorí hlasovanie na ${voteHours} h.`}
           </p>
         ) : null}
         {v.mvpMode !== "vote" && votingStarted ? <p className="text-xs text-warning">Pozor: doterajšie hlasy sa po uložení zahodia.</p> : null}
         {v.mvpMode === "manual" ? (
-          <Select aria-label="MVP zápasu" value={v.mvpPlayerId ?? ""} onChange={(e) => set("mvpPlayerId", e.target.value || null)}>
+          <Select aria-label="MVP večera" value={v.mvpPlayerId ?? ""} onChange={(e) => set("mvpPlayerId", e.target.value || null)}>
             <option value="">Vyber hráča…</option>
-            {lineupPlayers.map((p) => (
+            {eveningPlayers.map((p) => (
               <option key={p.id} value={p.id}>{p.nickname}</option>
             ))}
           </Select>
@@ -302,7 +447,7 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
       </Card>
 
       <Card className="p-4">
-        <Field label="Poznámka k zápasu">
+        <Field label="Poznámka k večeru">
           {(id) => <Textarea id={id} value={v.resultNote} onChange={(e) => set("resultNote", e.target.value)} maxLength={500} />}
         </Field>
       </Card>
@@ -312,7 +457,7 @@ export function ResultForm({ matchId, initial, players, seasons, voteHours, voti
         <div className="mx-auto flex max-w-2xl gap-2.5">
           <Button variant="secondary" className="flex-none" onClick={() => router.back()}>Späť</Button>
           <Button type="submit" className="flex-1" loading={pending}>
-            Uložiť výsledok {v.scoreA}:{v.scoreB}
+            {games.length === 1 ? `Uložiť výsledok ${games[0].scoreA}:${games[0].scoreB}` : `Uložiť večer (${games.length} zápasy)`}
           </Button>
         </div>
       </div>

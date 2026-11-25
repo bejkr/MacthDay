@@ -146,10 +146,15 @@ export type Database = {
         },
         "match_id" | "player_id" | "status"
       >;
+      games: TableDef<
+        { id: string; match_id: string; seq: number; score_a: number; score_b: number; created_at: string },
+        "match_id" | "seq" | "score_a" | "score_b"
+      >;
       match_player_stats: TableDef<
         {
           id: string;
           match_id: string;
+          game_id: string | null;
           player_id: string;
           team: Database["public"]["Enums"]["team_side"];
           created_at: string;
@@ -160,6 +165,7 @@ export type Database = {
         {
           id: string;
           match_id: string;
+          game_id: string | null;
           team: Database["public"]["Enums"]["team_side"];
           scorer_id: string;
           assist_id: string | null;
@@ -286,6 +292,9 @@ export type Database = {
         Args: { p_player: string; p_season?: string | null };
         Returns: {
           match_id: string;
+          game_id: string;
+          game_seq: number;
+          games_in_match: number;
           starts_at: string;
           team: Database["public"]["Enums"]["team_side"];
           team_a_name: string;
@@ -354,3 +363,4 @@ export type PlayerHistoryRow = FnReturn<"player_history">[number];
 export type Poll = Row<"polls">;
 export type PollOption = Row<"poll_options">;
 export type PollVote = Row<"poll_votes">;
+export type Game = Row<"games">;

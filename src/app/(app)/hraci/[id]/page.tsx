@@ -116,7 +116,7 @@ async function Profile({ params, searchParams }: Props) {
         <PlayerStat label="Asistencie" value={s?.assists ?? 0} />
         <PlayerStat label="MVP" value={s?.mvps ?? 0} />
         <PlayerStat label="Zápasy" value={s?.matches_played ?? 0} hint={s ? `${s.wins}V · ${s.draws}R · ${s.losses}P` : undefined} />
-        <PlayerStat label="Dochádzka" value={s?.attendance_pct != null ? `${s.attendance_pct} %` : "–"} hint={s ? `z ${s.eligible_matches} zápasov` : undefined} />
+        <PlayerStat label="Dochádzka" value={s?.attendance_pct != null ? `${s.attendance_pct} %` : "–"} hint={s ? `z ${s.eligible_matches} ${s.eligible_matches === 1 ? "večera" : "večerov"}` : undefined} />
         <PlayerStat label="Góly / zápas" value={perMatch} />
       </div>
 
@@ -144,7 +144,7 @@ async function Profile({ params, searchParams }: Props) {
             <div className="px-3 pt-4">
               <PlayerHistoryChart
                 nickname={player.nickname}
-                data={history.map((h) => ({ label: formatDayMonth(h.starts_at), goals: h.goals, assists: h.assists }))}
+                data={history.map((h) => ({ label: h.games_in_match > 1 ? `${formatDayMonth(h.starts_at)} #${h.game_seq}` : formatDayMonth(h.starts_at), goals: h.goals, assists: h.assists }))}
               />
             </div>
             <ul className="mt-2 divide-y divide-line">
@@ -153,7 +153,7 @@ async function Profile({ params, searchParams }: Props) {
                 const other = h.team === "A" ? h.score_b : h.score_a;
                 const result = own > other ? "V" : own < other ? "P" : "R";
                 return (
-                  <li key={h.match_id}>
+                  <li key={h.game_id}>
                     <Link href={`/zapasy/${h.match_id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50">
                       <span
                         className={cn(
@@ -169,7 +169,10 @@ async function Profile({ params, searchParams }: Props) {
                           <span className="num text-base">{h.score_a}:{h.score_b}</span>
                           <span className="ml-2 text-muted">{h.team === "A" ? h.team_a_name : h.team_b_name}</span>
                         </span>
-                        <span className="block text-xs text-muted">{formatDate(h.starts_at)}</span>
+                        <span className="block text-xs text-muted">
+                          {formatDate(h.starts_at)}
+                          {h.games_in_match > 1 ? ` · zápas ${h.game_seq} z ${h.games_in_match}` : ""}
+                        </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2 text-sm">
                         {h.is_mvp ? <Award className="size-4 text-warning" aria-label="MVP" /> : null}

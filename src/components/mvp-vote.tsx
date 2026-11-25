@@ -37,7 +37,7 @@ export function MvpVote({ matchId, status, lineup, meId, winnerId, timeLeftLabel
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-warning">
                 <Award className="size-3.5" aria-hidden />
-                MVP zápasu
+                MVP
               </div>
               <div className="display mt-1 truncate text-2xl text-ink">{winner.nickname}</div>
             </div>
@@ -81,7 +81,7 @@ export function MvpVote({ matchId, status, lineup, meId, winnerId, timeLeftLabel
       <div className="px-4 pb-4">
         <p className="flex items-center gap-2 rounded-xl bg-bg/50 px-3 py-2.5 text-sm text-muted">
           <Lock className="size-4 shrink-0" aria-hidden />
-          Hlasovať môžu iba hráči, ktorí v zápase nastúpili.
+          Hlasovať môžu iba hráči, ktorí v ten večer hrali aspoň jeden zápas.
         </p>
         {progress}
       </div>
@@ -106,7 +106,7 @@ export function MvpVote({ matchId, status, lineup, meId, winnerId, timeLeftLabel
   const candidates = lineup.filter((p) => p.id !== meId);
   return (
     <div className="px-4 pb-4">
-      <p className="mb-3 text-sm text-muted">Vyber najlepšieho hráča zápasu. Hlas je tajný a nedá sa zmeniť.</p>
+      <p className="mb-3 text-sm text-muted">Vyber najlepšieho hráča večera. Hlas je tajný a nedá sa zmeniť.</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Kandidáti na MVP">
         {candidates.map((p) => (
           <button

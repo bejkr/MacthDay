@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { ResultForm, type ResultInitial } from "@/components/result-form";
+import { ResultForm, type ResultGameInitial, type ResultInitial } from "@/components/result-form";
 import { EmptyState, PageHeader } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/auth";
-import { getAttendance, getGoals, getLineups, getMatch, getPlayers, getSeasons, toLite } from "@/lib/data";
+import { getAttendance, getGames, getGoals, getLineups, getMatch, getPlayers, getSeasons, toLite } from "@/lib/data";
 import { isoToLocalInput } from "@/lib/datetime";
 import { balanceTeams } from "@/lib/teams";
 import { Users } from "lucide-react";
@@ -21,15 +21,25 @@ export async function ResultScreen({ matchId }: { matchId: string | null }) {
   if (matchId && !match) notFound();
   if (match?.status === "cancelled") redirect(`/terminy/${match.id}`);
 
-  const [lineup, goals, attendance] = match
-    ? await Promise.all([getLineups([match.id]), getGoals([match.id]), getAttendance([match.id])])
-    : [[], [], []];
+  const [lineup, goals, attendance, gameRows] = match
+    ? await Promise.all([getLineups([match.id]), getGoals([match.id]), getAttendance([match.id]), getGames([match.id])])
+    : [[], [], [], []];
 
   const external = match?.kind === "external";
-  let assigned: ResultInitial["lineup"] = Object.fromEntries(lineup.map((l) => [l.player_id, l.team]));
+  type Lineup = ResultGameInitial["lineup"];
+  const toGoal = (g: (typeof goals)[number]) => ({ team: g.team, scorerId: g.scorer_id, assistId: g.assist_id ?? "", isOwnGoal: g.is_own_goal });
 
-  // Termín bez uložených tímov: predvyplníme z potvrdenej dochádzky.
-  if (match && lineup.length === 0) {
+  // Už zapísaný večer: každý zápas so svojou zostavou a gólmi.
+  let games: ResultGameInitial[] = gameRows.map((g) => ({
+    scoreA: g.score_a,
+    scoreB: g.score_b,
+    lineup: Object.fromEntries(lineup.filter((l) => l.game_id === g.id).map((l) => [l.player_id, l.team])) as Lineup,
+    goals: goals.filter((x) => x.game_id === g.id).map(toGoal),
+  }));
+
+  // Termín bez výsledku: prvý zápas zo zostavy uloženej pri termíne, inak z potvrdenej dochádzky.
+  let assigned: Lineup = Object.fromEntries(lineup.filter((l) => !l.game_id).map((l) => [l.player_id, l.team]));
+  if (match && games.length === 0 && Object.keys(assigned).length === 0) {
     const going = players.filter((p) => attendance.some((a) => a.player_id === p.id && a.status === "yes"));
     if (external) {
       assigned = Object.fromEntries(going.map((p) => [p.id, "A" as const]));
@@ -38,6 +48,9 @@ export async function ResultScreen({ matchId }: { matchId: string | null }) {
       assigned = Object.fromEntries([...split.a.map((id) => [id, "A" as const]), ...split.b.map((id) => [id, "B" as const])]);
     }
   }
+
+  if (games.length === 0) games = [{ scoreA: 0, scoreB: 0, lineup: assigned, goals: [] }];
+  const inAnyGame = new Set(games.flatMap((g) => Object.keys(g.lineup)));
 
   const played = match?.status === "played";
   const initial: ResultInitial = {
@@ -48,17 +61,14 @@ export async function ResultScreen({ matchId }: { matchId: string | null }) {
     kind: match?.kind ?? "internal",
     teamAName: match?.team_a_name ?? "Tím A",
     teamBName: match?.team_b_name ?? "Tím B",
-    scoreA: match?.score_a ?? 0,
-    scoreB: match?.score_b ?? 0,
     resultNote: match?.result_note ?? "",
     mvpMode: played ? match.mvp_mode : "vote",
     mvpPlayerId: played && match.mvp_mode === "manual" ? match.mvp_player_id : null,
-    lineup: assigned,
-    goals: goals.map((g) => ({ team: g.team, scorerId: g.scorer_id, assistId: g.assist_id ?? "", isOwnGoal: g.is_own_goal })),
+    games,
   };
 
   // Aktívni hráči + tí, ktorí už v zostave sú (aj keby boli medzičasom deaktivovaní).
-  const selectable = players.filter((p) => p.is_active || assigned[p.id]).map(toLite);
+  const selectable = players.filter((p) => (p.is_active && !p.deleted_at) || inAnyGame.has(p.id)).map(toLite);
   const backHref = match ? (played ? `/zapasy/${match.id}` : `/terminy/${match.id}`) : "/zapasy";
 
   return (
