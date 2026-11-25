@@ -2,21 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { CalendarDays, ChevronRight, ClipboardPen } from "lucide-react";
-import { EventFormButton, type EventFormValues } from "@/components/event-form";
+import { EventFormButton } from "@/components/event-form";
 import { EventCard } from "@/components/match-card";
 import { PollCard } from "@/components/poll-card";
 import { PollCreateButton } from "@/components/poll-create";
 import { EmptyState, PageHeader, PageSkeleton, SectionTitle } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
 import { getAttendance, getPlayers, getPolls, getUnresolvedMatches, getUpcomingMatches, toLite } from "@/lib/data";
-import { formatDate, formatTime, todayInZone } from "@/lib/datetime";
+import { formatDate, formatTime } from "@/lib/datetime";
+import { defaultEventValues } from "@/lib/event-defaults";
 
 export const metadata: Metadata = { title: "Termíny" };
-
-function defaultEvent(): EventFormValues {
-  const tomorrow = new Date(Date.parse(todayInZone()) + 86_400_000).toISOString().slice(0, 10);
-  return { startsAt: `${tomorrow}T18:00`, location: "", note: "", maxPlayers: null, signupClosesAt: null, kind: "internal", opponent: "" };
-}
 
 async function Events({ searchParams }: { searchParams: Promise<{ novy?: string }> }) {
   const me = await requireMember();
@@ -28,7 +24,7 @@ async function Events({ searchParams }: { searchParams: Promise<{ novy?: string 
     getPlayers(),
   ]);
   const playersById = Object.fromEntries(players.map((p) => [p.id, toLite(p)]));
-  const eventDefaults = defaultEvent();
+  const eventDefaults = defaultEventValues();
   const attendance = await getAttendance(upcoming.map((m) => m.id));
 
   return (

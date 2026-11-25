@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Award, CalendarPlus, ChevronRight, ClipboardPen, Clock, Footprints, Goal, ListChecks, MapPin, Vote } from "lucide-react";
+import { Award, CalendarPlus, ChevronRight, ClipboardPen, Clock, Footprints, Goal, MapPin, Vote } from "lucide-react";
 import { RsvpButtons } from "@/components/attendance";
 import { MatchCard } from "@/components/match-card";
+import { PollCard } from "@/components/poll-card";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState, PageSkeleton, PlayerStat, SectionTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import {
   getTreasurySummary, getUnresolvedMatches, getUpcomingMatches, tick, toLite, type PlayerLite,
 } from "@/lib/data";
 import { formatDayMonth, formatTime, formatWeekday, relativeDay, timeLeft } from "@/lib/datetime";
+import { defaultEventValues } from "@/lib/event-defaults";
 import { formatMoney, plural, pluralWord } from "@/lib/format";
 import type { PlayerStats } from "@/lib/supabase/database.types";
 
@@ -69,9 +71,11 @@ async function Dashboard() {
     me.isAdmin ? getUnresolvedMatches() : Promise.resolve([]),
   ]);
   const polls = await getPolls();
-  const pollsToVote = polls.filter((p) => p.votingOpen && !p.options.some((o) => o.voters.includes(me.player.id)));
+  // Ankety, z ktorých ešte nevznikol termín, sú na Prehľade vždy – celé, aby sa dalo hlasovať hneď tu.
+  const activePolls = polls.filter((p) => p.status !== "converted");
 
   const lite = byId(players.map(toLite));
+  const playersById = Object.fromEntries(lite);
   const next = upcoming.find((m) => m.status === "scheduled");
   const attendance = next ? await getAttendance([next.id]) : [];
   const going = attendance.filter((a) => a.status === "yes");
@@ -105,6 +109,10 @@ async function Dashboard() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
         <div className="flex flex-col gap-4">
+          {activePolls.map((p) => (
+            <PollCard key={p.id} poll={p} players={playersById} meId={me.player.id} isAdmin={me.isAdmin} defaultEvent={defaultEventValues()} />
+          ))}
+
           {/* Najbližší termín */}
           {next ? (
             <Card className="pitch overflow-hidden p-4 sm:p-5">
@@ -162,7 +170,7 @@ async function Dashboard() {
                 ) : null}
               </div>
             </Card>
-          ) : (
+          ) : activePolls.length > 0 ? null : (
             <EmptyState
               icon={<CalendarPlus />}
               title="Žiadny naplánovaný termín"
@@ -170,19 +178,6 @@ async function Dashboard() {
               action={me.isAdmin ? <ButtonLink href="/terminy?novy=1">Nový termín</ButtonLink> : undefined}
             />
           )}
-
-          {pollsToVote.map((p) => (
-            <Link key={p.id} href={`/terminy#anketa-${p.id}`} className="flex items-center gap-3 rounded-card border border-primary/30 bg-primary/[0.07] p-3.5">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-bg">
-                <ListChecks className="size-5" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-ink">Hlasuj v ankete</span>
-                <span className="block truncate text-xs text-muted">{p.title}</span>
-              </span>
-              <ChevronRight className="size-5 shrink-0 text-primary" aria-hidden />
-            </Link>
-          ))}
 
           {toVote.map((m) => (
             <Link key={m.id} href={`/zapasy/${m.id}`} className="flex items-center gap-3 rounded-card border border-primary/30 bg-primary/[0.07] p-3.5">

@@ -59,7 +59,7 @@ export function EventFormButton({ initial, defaultOpen = false, variant = "creat
   return (
     <>
       {poll ? (
-        <Button size="sm" onClick={() => setOpen(true)} icon={<CalendarCheck className="size-4" />} aria-label={`Vytvoriť termín z možnosti ${poll.optionLabel}`}>
+        <Button variant="secondary" size="sm" onClick={() => setOpen(true)} icon={<CalendarCheck className="size-4" />} aria-label={`Vytvoriť termín z možnosti ${poll.optionLabel}`}>
           Termín
         </Button>
       ) : variant === "create" ? (
