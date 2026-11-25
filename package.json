@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/lib/teams.test.ts",
+    "test": "node --test src/lib/teams.test.ts src/lib/awards.test.ts",
     "test:db": "bash scripts/test-db.sh",
     "db:types": "supabase gen types typescript --local > src/lib/supabase/database.generated.ts",
     "icons": "node scripts/generate-icons.mjs"

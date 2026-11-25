@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ArrowLeft, Award, Pencil } from "lucide-react";
+import { AwardsGrid, awardInput } from "@/components/awards";
 import { DeleteMatchButton } from "@/components/event-admin";
 import { Lineups } from "@/components/lineups";
 import { GameChips, Scoreline } from "@/components/match-card";
@@ -10,7 +11,8 @@ import { MvpVote } from "@/components/mvp-vote";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader, PageSkeleton } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
-import { getGames, getGoals, getLineups, getMatch, getMvpStatus, getPlayers, tick, toLite, type PlayerLite } from "@/lib/data";
+import { computeAwards } from "@/lib/awards";
+import { getAttendance, getGames, getGoals, getLineups, getMatch, getMvpStatus, getPlayers, tick, toLite, type PlayerLite } from "@/lib/data";
 import { formatDate, formatTime, formatWeekday, timeLeft } from "@/lib/datetime";
 import { cn } from "@/lib/format";
 import type { Goal, LineupRow, Match } from "@/lib/supabase/database.types";
@@ -93,9 +95,10 @@ async function MatchDetail({ params }: { params: Promise<{ id: string }> }) {
   if (!match) notFound();
   if (match.status !== "played") redirect(`/terminy/${match.id}`);
 
-  const [players, lineup, goals, gameRows, mvp] = await Promise.all([
-    getPlayers(), getLineups([id]), getGoals([id]), getGames([id]), getMvpStatus(id),
+  const [players, lineup, goals, gameRows, mvp, attendance] = await Promise.all([
+    getPlayers(), getLineups([id]), getGoals([id]), getGames([id]), getMvpStatus(id), getAttendance([id]),
   ]);
+  const awards = computeAwards(awardInput(gameRows, lineup, goals, attendance));
   const lite = new Map(players.map((p) => [p.id, toLite(p)]));
   const games: GameView[] = gameRows.map((g) => ({
     id: g.id,
@@ -147,6 +150,13 @@ async function MatchDetail({ params }: { params: Promise<{ id: string }> }) {
         ) : null}
         {match.result_note ? <p className="mt-5 text-center text-sm whitespace-pre-line text-ink/80">{match.result_note}</p> : null}
       </Card>
+
+      {awards.length > 0 ? (
+        <Card className="mt-4">
+          <CardHeader title="Ocenenia večera" />
+          <AwardsGrid awards={awards} players={lite} />
+        </Card>
+      ) : null}
 
       <Card className="mt-4">
         <CardHeader title={multi ? "MVP večera" : "MVP zápasu"} />

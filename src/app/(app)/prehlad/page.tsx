@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Award, CalendarPlus, ChevronRight, ClipboardPen, Clock, Footprints, Goal, MapPin, Vote } from "lucide-react";
 import { RsvpButtons } from "@/components/attendance";
+import { AwardChips, awardInput } from "@/components/awards";
 import { MatchCard } from "@/components/match-card";
 import { PollCard } from "@/components/poll-card";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -10,10 +11,11 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState, PageSkeleton, PlayerStat, SectionTitle } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
 import {
-  byId, getAttendance, getGames, getGroupSummary, getMvpStatus, getPlayedMatches, getPlayers, getPolls, getStats,
+  byId, getAttendance, getGames, getGoals, getGroupSummary, getLineups, getMvpStatus, getPlayedMatches, getPlayers, getPolls, getStats,
   getTreasurySummary, getUnresolvedMatches, getUpcomingMatches, tick, toLite, type PlayerLite,
 } from "@/lib/data";
 import { formatDayMonth, formatTime, formatWeekday, relativeDay, timeLeft } from "@/lib/datetime";
+import { computeAwards } from "@/lib/awards";
 import { defaultEventValues } from "@/lib/event-defaults";
 import { formatMoney, plural, pluralWord } from "@/lib/format";
 import type { PlayerStats } from "@/lib/supabase/database.types";
@@ -94,6 +96,14 @@ async function Dashboard() {
   const toVote = votable.filter((_, i) => statuses[i].eligible && !statuses[i].my_vote);
 
   const last = played[0];
+  const lastAwards = last
+    ? computeAwards(
+        awardInput(
+          lastGames.filter((g) => g.match_id === last.id),
+          ...(await Promise.all([getLineups([last.id]), getGoals([last.id]), getAttendance([last.id])])),
+        ),
+      )
+    : [];
   const ranked = stats.filter((s) => lite.has(s.player_id) && !lite.get(s.player_id)!.isDeleted);
   const scorer = top(ranked, "goals");
   const assister = top(ranked, "assists");
@@ -212,7 +222,10 @@ async function Dashboard() {
           <div>
             <SectionTitle action={<Link href="/zapasy" className="text-xs font-medium text-primary">Všetky zápasy</Link>}>Posledný zápas</SectionTitle>
             {last ? (
-              <MatchCard match={last} games={gamesOf(last.id)} mvpName={last.mvp_player_id ? lite.get(last.mvp_player_id)?.nickname : null} />
+              <div className="flex flex-col gap-2.5">
+                <MatchCard match={last} games={gamesOf(last.id)} mvpName={last.mvp_player_id ? lite.get(last.mvp_player_id)?.nickname : null} />
+                {lastAwards.length > 0 ? <AwardChips awards={lastAwards} players={lite} /> : null}
+              </div>
             ) : (
               <p className="rounded-card border border-dashed border-line-strong px-4 py-6 text-center text-sm text-muted">Zatiaľ sa neodohral žiadny zápas.</p>
             )}
