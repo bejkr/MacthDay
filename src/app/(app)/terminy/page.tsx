@@ -4,9 +4,11 @@ import { Suspense } from "react";
 import { CalendarDays, ChevronRight, ClipboardPen } from "lucide-react";
 import { EventFormButton, type EventFormValues } from "@/components/event-form";
 import { EventCard } from "@/components/match-card";
+import { PollCard } from "@/components/poll-card";
+import { PollCreateButton } from "@/components/poll-create";
 import { EmptyState, PageHeader, PageSkeleton, SectionTitle } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
-import { getAttendance, getUnresolvedMatches, getUpcomingMatches } from "@/lib/data";
+import { getAttendance, getPlayers, getPolls, getUnresolvedMatches, getUpcomingMatches, toLite } from "@/lib/data";
 import { formatDate, formatTime, todayInZone } from "@/lib/datetime";
 
 export const metadata: Metadata = { title: "Termíny" };
@@ -18,11 +20,15 @@ function defaultEvent(): EventFormValues {
 
 async function Events({ searchParams }: { searchParams: Promise<{ novy?: string }> }) {
   const me = await requireMember();
-  const [{ novy }, upcoming, unresolved] = await Promise.all([
+  const [{ novy }, upcoming, unresolved, polls, players] = await Promise.all([
     searchParams,
     getUpcomingMatches(),
     me.isAdmin ? getUnresolvedMatches() : Promise.resolve([]),
+    getPolls(),
+    getPlayers(),
   ]);
+  const playersById = Object.fromEntries(players.map((p) => [p.id, toLite(p)]));
+  const eventDefaults = defaultEvent();
   const attendance = await getAttendance(upcoming.map((m) => m.id));
 
   return (
@@ -30,8 +36,21 @@ async function Events({ searchParams }: { searchParams: Promise<{ novy?: string 
       <PageHeader
         title="Termíny"
         subtitle="Daj vedieť, či prídeš – stačí jeden ťuk."
-        action={me.isAdmin ? <EventFormButton initial={defaultEvent()} defaultOpen={novy === "1"} /> : undefined}
+        action={me.isAdmin ? <EventFormButton initial={eventDefaults} defaultOpen={novy === "1"} /> : undefined}
       />
+
+      <SectionTitle action={<PollCreateButton />}>Ankety</SectionTitle>
+      {polls.length === 0 ? (
+        <p className="rounded-card border border-dashed border-line-strong px-4 py-5 text-center text-sm text-muted">
+          Ešte nie je dohodnutý termín? Vytvor anketu a nechaj partiu hlasovať.
+        </p>
+      ) : (
+        <div className="grid gap-2.5 lg:grid-cols-2">
+          {polls.map((poll) => (
+            <PollCard key={poll.id} poll={poll} players={playersById} meId={me.player.id} isAdmin={me.isAdmin} defaultEvent={eventDefaults} />
+          ))}
+        </div>
+      )}
 
       {unresolved.length > 0 ? (
         <>
@@ -50,9 +69,10 @@ async function Events({ searchParams }: { searchParams: Promise<{ novy?: string 
               </Link>
             ))}
           </div>
-          <SectionTitle>Nadchádzajúce</SectionTitle>
         </>
       ) : null}
+
+      <SectionTitle>Nadchádzajúce termíny</SectionTitle>
 
       {upcoming.length === 0 ? (
         <EmptyState

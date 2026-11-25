@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Award, CalendarPlus, ChevronRight, ClipboardPen, Clock, Footprints, Goal, MapPin, Vote } from "lucide-react";
+import { Award, CalendarPlus, ChevronRight, ClipboardPen, Clock, Footprints, Goal, ListChecks, MapPin, Vote } from "lucide-react";
 import { RsvpButtons } from "@/components/attendance";
 import { MatchCard } from "@/components/match-card";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -9,7 +9,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState, PageSkeleton, PlayerStat, SectionTitle } from "@/components/ui/card";
 import { requireMember } from "@/lib/auth";
 import {
-  byId, getAttendance, getGroupSummary, getMvpStatus, getPlayedMatches, getPlayers, getStats,
+  byId, getAttendance, getGroupSummary, getMvpStatus, getPlayedMatches, getPlayers, getPolls, getStats,
   getTreasurySummary, getUnresolvedMatches, getUpcomingMatches, tick, toLite, type PlayerLite,
 } from "@/lib/data";
 import { formatDayMonth, formatTime, formatWeekday, relativeDay, timeLeft } from "@/lib/datetime";
@@ -68,6 +68,8 @@ async function Dashboard() {
     getTreasurySummary(),
     me.isAdmin ? getUnresolvedMatches() : Promise.resolve([]),
   ]);
+  const polls = await getPolls();
+  const pollsToVote = polls.filter((p) => p.votingOpen && !p.options.some((o) => o.voters.includes(me.player.id)));
 
   const lite = byId(players.map(toLite));
   const next = upcoming.find((m) => m.status === "scheduled");
@@ -168,6 +170,19 @@ async function Dashboard() {
               action={me.isAdmin ? <ButtonLink href="/terminy?novy=1">Nový termín</ButtonLink> : undefined}
             />
           )}
+
+          {pollsToVote.map((p) => (
+            <Link key={p.id} href={`/terminy#anketa-${p.id}`} className="flex items-center gap-3 rounded-card border border-primary/30 bg-primary/[0.07] p-3.5">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-bg">
+                <ListChecks className="size-5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-ink">Hlasuj v ankete</span>
+                <span className="block truncate text-xs text-muted">{p.title}</span>
+              </span>
+              <ChevronRight className="size-5 shrink-0 text-primary" aria-hidden />
+            </Link>
+          ))}
 
           {toVote.map((m) => (
             <Link key={m.id} href={`/zapasy/${m.id}`} className="flex items-center gap-3 rounded-card border border-primary/30 bg-primary/[0.07] p-3.5">

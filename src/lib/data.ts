@@ -182,6 +182,53 @@ export async function getNotifications(limit = 60): Promise<Notification[]> {
   return unwrap(supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(limit));
 }
 
+export type PollView = {
+  id: string;
+  title: string;
+  note: string | null;
+  allowMultiple: boolean;
+  status: "open" | "closed" | "converted";
+  /** Dá sa ešte hlasovať (otvorená a neuplynul koniec hlasovania). */
+  votingOpen: boolean;
+  matchId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  options: { id: string; label: string; startsAt: string | null; voters: string[] }[];
+};
+
+/** Ankety partie: otvorené a uzavreté; vybavené (s termínom) iba z posledných 14 dní. */
+export async function getPolls(): Promise<PollView[]> {
+  const supabase = await createClient();
+  const polls = await unwrap(supabase.from("polls").select("*").order("created_at", { ascending: false }).limit(30));
+  const now = Date.now();
+  const visible = polls.filter((p) => p.status !== "converted" || Date.parse(p.created_at) > now - 14 * 86_400_000);
+  if (visible.length === 0) return [];
+  const ids = visible.map((p) => p.id);
+  const [options, votes] = await Promise.all([
+    unwrap(supabase.from("poll_options").select("*").in("poll_id", ids).order("position")),
+    unwrap(supabase.from("poll_votes").select("*").in("poll_id", ids).order("created_at")),
+  ]);
+  return visible.map((p) => ({
+    id: p.id,
+    title: p.title,
+    note: p.note,
+    allowMultiple: p.allow_multiple,
+    status: p.status,
+    votingOpen: p.status === "open" && (!p.closes_at || Date.parse(p.closes_at) > now),
+    matchId: p.match_id,
+    createdBy: p.created_by,
+    createdAt: p.created_at,
+    options: options
+      .filter((o) => o.poll_id === p.id)
+      .map((o) => ({
+        id: o.id,
+        label: o.label,
+        startsAt: o.starts_at,
+        voters: votes.filter((v) => v.option_id === o.id).map((v) => v.player_id),
+      })),
+  }));
+}
+
 /** Poistka k pg_cron: uzavrie skončené MVP hlasovania a vytvorí splatné pripomienky. */
 export async function tick() {
   try {

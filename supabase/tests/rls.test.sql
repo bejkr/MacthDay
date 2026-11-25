@@ -522,6 +522,69 @@ begin
   perform t.throws(format('select public.delete_player(%L)', t.get('p_fero')), 'permission denied', 'anon nemá prístup');
 end $$;
 
+-- ═════════ 14. Ankety na termín ═════════
+do $$
+declare v_poll uuid; v_single uuid; o uuid[]; o2 uuid[]; v_match uuid; v_tmp uuid;
+begin
+  -- Bežný hráč (p_admin je teraz player) vytvorí anketu
+  perform t.login('admin');
+  perform t.throws('select public.create_poll(''Tento víkend'', null, ''[{"label":"Sobota"}]'')', 'invalid_options', 'anketa potrebuje aspoň 2 možnosti');
+  v_poll := public.create_poll('Tento víkend môžem hrať', null,
+    '[{"label":"Sobota ráno vonku"},{"label":"Nedeľa ráno vonku","starts_at":"2030-06-02T07:00:00Z"},{"label":"Nedeľa poobede hala"}]');
+  select array_agg(id order by position) into o from public.poll_options where poll_id = v_poll;
+  perform t.ok(cardinality(o) = 3, 'bežný hráč vytvorí anketu s 3 možnosťami');
+  perform t.throws('insert into public.polls (group_id, title) values (''' || t.get('g1') || ''', ''Hack'')', 'permission denied', 'anketa sa nedá vložiť priamo');
+  perform t.throws('insert into public.poll_votes (poll_id, option_id, player_id) values (gen_random_uuid(), gen_random_uuid(), gen_random_uuid())', 'permission denied', 'hlas sa nedá vložiť priamo');
+
+  perform public.vote_poll(v_poll, array[o[2], o[3]]);
+  perform public.vote_poll(v_poll, array[o[2]]);
+  perform t.ok((select count(*) from public.poll_votes where poll_id = v_poll and player_id = t.uid('p_admin')) = 1, 'zmena hlasu nahradí predošlé hlasy');
+
+  perform t.login('fero');
+  perform t.ok((select count(*) from public.notifications where type = 'new_poll') = 1, 'ostatní dostali upozornenie na anketu');
+  perform public.vote_poll(v_poll, array[o[1], o[2]]);
+  perform t.ok((select count(*) from public.poll_votes where option_id = o[2]) = 2, 'hlasy sú viditeľné pre partiu');
+
+  v_single := public.create_poll('Len jedna', null, '[{"label":"A"},{"label":"B"}]', false);
+  select array_agg(id order by position) into o2 from public.poll_options where poll_id = v_single;
+  perform t.throws(format('select public.vote_poll(%L, %L)', v_single, o2), 'single_choice', 'pri jednej voľbe sa nedá hlasovať za viac');
+  perform t.throws(format('select public.vote_poll(%L, %L)', v_poll, array[o2[1]]), 'invalid_options', 'nedá sa hlasovať možnosťou z inej ankety');
+
+  -- Cudzia partia
+  perform t.login('other');
+  perform t.ok((select count(*) from public.polls) = 0 and (select count(*) from public.poll_votes) = 0, 'cudzia partia nevidí ankety ani hlasy');
+  perform t.throws(format('select public.vote_poll(%L, %L)', v_poll, array[o[1]]), 'not_found', 'cudzia partia nehlasuje');
+
+  -- Prevod na termín
+  perform t.login('admin');
+  perform t.throws(format('select public.create_event_from_poll(%L, %L, %L)', v_poll, o[2], '{"starts_at":"2030-06-02T07:00:00Z"}'), 'forbidden', 'bežný hráč nevytvorí termín z ankety');
+  perform t.throws(format('select public.delete_poll(%L)', v_single), 'forbidden', 'cudziu anketu nezmaže bežný hráč');
+
+  -- Tretí hlasujúci (pridaný priamo, aby bolo čo presiahnuť limit 2)
+  perform t.root();
+  insert into public.players (group_id, nickname) values (t.uid('g1'), 'Tretí') returning id into v_tmp;
+  insert into public.poll_votes (poll_id, option_id, player_id) values (v_poll, o[2], v_tmp);
+  perform t.login('fero');
+  v_match := public.create_event_from_poll(v_poll, o[2],
+    '{"starts_at":"2030-06-02T07:00:00Z","location":"Umelka","max_players":2,"mark_attendance":true}');
+  perform t.ok((select status from public.matches where id = v_match) = 'scheduled', 'z ankety vznikol termín');
+  perform t.ok((select status = 'converted' and match_id = v_match from public.polls where id = v_poll), 'anketa je označená ako vybavená');
+  perform t.ok((select count(*) from public.attendance where match_id = v_match and status = 'yes') = 2
+           and (select count(*) from public.attendance where match_id = v_match and status = 'maybe') = 1,
+           'hlasujúci sú prihlásení (v rámci limitu Prídem, nad limit Možno)');
+  perform t.throws(format('select public.vote_poll(%L, %L)', v_poll, array[o[1]]), 'poll_closed', 'do vybavenej ankety sa už nehlasuje');
+  perform t.throws(format('select public.create_event_from_poll(%L, %L, %L)', v_poll, o[1], '{"starts_at":"2030-06-03T07:00:00Z"}'), 'poll_converted', 'z ankety nevznikne druhý termín');
+
+  -- Uzavretie a zmazanie
+  perform public.set_poll_open(v_single, false);
+  perform t.throws(format('select public.vote_poll(%L, %L)', v_single, array[o2[1]]), 'poll_closed', 'do uzavretej ankety sa nehlasuje');
+  perform public.delete_poll(v_poll);
+  perform t.ok(exists (select 1 from public.matches where id = v_match), 'zmazaním ankety termín ostáva');
+
+  perform t.anon();
+  perform t.throws('select public.create_poll(''X'', null, ''[]'')', 'permission denied', 'anon nemôže vytvárať ankety');
+end $$;
+
 do $$
 begin
   perform t.root();

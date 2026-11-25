@@ -1,11 +1,12 @@
 "use client";
 
-import { CalendarPlus, Pencil } from "lucide-react";
+import { CalendarCheck, CalendarPlus, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { saveEventAction } from "@/lib/actions/matches";
+import { createEventFromPollAction } from "@/lib/actions/polls";
 import { Button } from "./ui/button";
-import { Field, Input, Segmented, Textarea } from "./ui/form";
+import { Field, Input, Segmented, Textarea, Toggle } from "./ui/form";
 import { Modal } from "./ui/modal";
 import { useAction } from "./use-action";
 
@@ -20,12 +21,19 @@ export type EventFormValues = {
   opponent: string;
 };
 
-type Props = { initial: EventFormValues; defaultOpen?: boolean; variant?: "create" | "edit" };
+type Props = {
+  initial: EventFormValues;
+  defaultOpen?: boolean;
+  variant?: "create" | "edit";
+  /** Termín z ankety: vytvorí sa z vybranej možnosti a anketa sa označí ako vybavená. */
+  poll?: { pollId: string; optionId: string; optionLabel: string; voters: number };
+};
 
-export function EventFormButton({ initial, defaultOpen = false, variant = "create" }: Props) {
+export function EventFormButton({ initial, defaultOpen = false, variant = "create", poll }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [v, setV] = useState(initial);
+  const [markAttendance, setMarkAttendance] = useState(true);
   const set = <K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) => setV((prev) => ({ ...prev, [key]: value }));
 
   const { run, pending } = useAction(saveEventAction, {
@@ -39,9 +47,22 @@ export function EventFormButton({ initial, defaultOpen = false, variant = "creat
     },
   });
 
+  const fromPoll = useAction(createEventFromPollAction, {
+    success: "Termín vytvorený z ankety, partia dostala upozornenie.",
+    onSuccess: (data) => {
+      setOpen(false);
+      router.push(`/terminy/${data.id}`);
+    },
+  });
+  const saving = poll ? fromPoll.pending : pending;
+
   return (
     <>
-      {variant === "create" ? (
+      {poll ? (
+        <Button size="sm" onClick={() => setOpen(true)} icon={<CalendarCheck className="size-4" />} aria-label={`Vytvoriť termín z možnosti ${poll.optionLabel}`}>
+          Termín
+        </Button>
+      ) : variant === "create" ? (
         <Button onClick={() => setOpen(true)} icon={<CalendarPlus className="size-4" />}>Nový termín</Button>
       ) : (
         <Button variant="secondary" onClick={() => setOpen(true)} icon={<Pencil className="size-4" />}>Upraviť</Button>
@@ -50,11 +71,12 @@ export function EventFormButton({ initial, defaultOpen = false, variant = "creat
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={variant === "create" ? "Nový termín" : "Upraviť termín"}
+        title={poll ? "Termín z ankety" : variant === "create" ? "Nový termín" : "Upraviť termín"}
+        description={poll ? `Možnosť „${poll.optionLabel}“` : undefined}
         footer={
           <>
             <Button variant="secondary" onClick={() => setOpen(false)}>Zrušiť</Button>
-            <Button type="submit" form="event-form" loading={pending}>Uložiť</Button>
+            <Button type="submit" form="event-form" loading={saving}>{poll ? "Vytvoriť termín" : "Uložiť"}</Button>
           </>
         }
       >
@@ -63,7 +85,11 @@ export function EventFormButton({ initial, defaultOpen = false, variant = "creat
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            run({ ...v, signupClosesAt: v.signupClosesAt || null });
+            if (poll) {
+              fromPoll.run({ ...v, signupClosesAt: v.signupClosesAt || null, pollId: poll.pollId, optionId: poll.optionId, markAttendance });
+            } else {
+              run({ ...v, signupClosesAt: v.signupClosesAt || null });
+            }
           }}
         >
           <Field label="Dátum a čas">
@@ -118,6 +144,16 @@ export function EventFormButton({ initial, defaultOpen = false, variant = "creat
           <Field label="Poznámka">
             {(id) => <Textarea id={id} value={v.note} onChange={(e) => set("note", e.target.value)} maxLength={500} placeholder="Dresy, platba za halu…" />}
           </Field>
+          {poll && poll.voters > 0 ? (
+            <div className="rounded-2xl border border-line bg-bg/50 p-3.5">
+              <Toggle
+                label={`Prihlásiť ${poll.voters === 1 ? "hlasujúceho" : `${poll.voters} hlasujúcich`} ako „Prídem“`}
+                hint="Tí, čo hlasovali za túto možnosť. Nad limit hráčov dostanú „Možno“. Svoju odpoveď si môžu zmeniť."
+                checked={markAttendance}
+                onChange={setMarkAttendance}
+              />
+            </div>
+          ) : null}
         </form>
       </Modal>
     </>

@@ -187,6 +187,29 @@ export type Database = {
         },
         "group_id" | "type" | "amount" | "created_by"
       >;
+      polls: TableDef<
+        {
+          id: string;
+          group_id: string;
+          title: string;
+          note: string | null;
+          allow_multiple: boolean;
+          status: Database["public"]["Enums"]["poll_status"];
+          closes_at: string | null;
+          match_id: string | null;
+          created_by: string | null;
+          created_at: string;
+        },
+        "group_id" | "title"
+      >;
+      poll_options: TableDef<
+        { id: string; poll_id: string; label: string; starts_at: string | null; position: number },
+        "poll_id" | "label"
+      >;
+      poll_votes: TableDef<
+        { poll_id: string; option_id: string; player_id: string; created_at: string },
+        "poll_id" | "option_id" | "player_id"
+      >;
       notifications: TableDef<
         {
           id: string;
@@ -223,6 +246,14 @@ export type Database = {
       revoke_invite_link: { Args: { p_link: string }; Returns: undefined };
       set_avatar: { Args: { p_player: string; p_path: string | null }; Returns: string | null };
       delete_player: { Args: { p_player: string }; Returns: Json };
+      create_poll: {
+        Args: { p_title: string; p_note: string | null; p_options: Json; p_allow_multiple?: boolean; p_closes_at?: string | null };
+        Returns: string;
+      };
+      vote_poll: { Args: { p_poll: string; p_options: string[] }; Returns: undefined };
+      set_poll_open: { Args: { p_poll: string; p_open: boolean }; Returns: undefined };
+      delete_poll: { Args: { p_poll: string }; Returns: undefined };
+      create_event_from_poll: { Args: { p_poll: string; p_option: string; p: Json }; Returns: string };
       start_new_season: { Args: { p_name: string; p_starts_on?: string }; Returns: string };
       set_attendance: {
         Args: { p_match: string; p_status: Database["public"]["Enums"]["attendance_status"] };
@@ -286,6 +317,7 @@ export type Database = {
       treasury_type: "fine" | "payment" | "contribution" | "expense" | "income";
       invite_kind: "group" | "recovery";
       request_status: "pending" | "approved" | "rejected" | "cancelled";
+      poll_status: "open" | "closed" | "converted";
       notification_type:
         | "new_event"
         | "rsvp_reminder"
@@ -296,7 +328,8 @@ export type Database = {
         | "payment"
         | "contribution"
         | "access_request"
-        | "system";
+        | "system"
+        | "new_poll";
     };
     CompositeTypes: Record<never, never>;
   };
@@ -318,3 +351,6 @@ export type TreasuryEntry = Row<"treasury_entries">;
 export type Notification = Row<"notifications">;
 export type PlayerStats = FnReturn<"player_stats">[number];
 export type PlayerHistoryRow = FnReturn<"player_history">[number];
+export type Poll = Row<"polls">;
+export type PollOption = Row<"poll_options">;
+export type PollVote = Row<"poll_votes">;

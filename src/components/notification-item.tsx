@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Award, Bell, CalendarPlus, Clock, Coins, HandCoins, ShieldAlert, UserPlus, Vote, type LucideIcon } from "lucide-react";
+import { Award, Bell, CalendarPlus, Clock, Coins, HandCoins, ListChecks, ShieldAlert, UserPlus, Vote, type LucideIcon } from "lucide-react";
 import { formatDayMonth, formatTime, relativeDay } from "@/lib/datetime";
 import { cn } from "@/lib/format";
 import type { Enum, Notification } from "@/lib/supabase/database.types";
@@ -15,6 +15,7 @@ const ICON: Record<Enum<"notification_type">, LucideIcon> = {
   contribution: Coins,
   access_request: UserPlus,
   system: Bell,
+  new_poll: ListChecks,
 };
 
 export function NotificationItem({ notification: n }: { notification: Notification }) {

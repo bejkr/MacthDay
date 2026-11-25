@@ -8,6 +8,8 @@ type Options<T> = {
   /** Hláška po úspechu (plávajúce oznámenie). */
   success?: string;
   onSuccess?: (data: T) => void;
+  /** Volá sa pri neúspechu (po zobrazení hlášky), napr. na vrátenie okamžite zobrazenej zmeny. */
+  onError?: () => void;
 };
 
 /**
@@ -18,12 +20,13 @@ type Options<T> = {
 export function useAction<I, T>(action: (input: I) => Promise<ActionResult<T>>, options: Options<T> = {}) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const { success, onSuccess } = options;
+  const { success, onSuccess, onError } = options;
 
   const run = useCallback(
     (input: I) => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         toast.error("Si offline. Zmeny sa dajú ukladať až po obnovení pripojenia.");
+        onError?.();
         return;
       }
       startTransition(async () => {
@@ -34,13 +37,15 @@ export function useAction<I, T>(action: (input: I) => Promise<ActionResult<T>>, 
             onSuccess?.(result.data);
           } else {
             toast.error(result.error);
+            onError?.();
           }
         } catch {
           toast.error("Spojenie so serverom zlyhalo. Zmena sa neuložila – skús to znova.");
+          onError?.();
         }
       });
     },
-    [action, onSuccess, success, toast],
+    [action, onError, onSuccess, success, toast],
   );
 
   return { run, pending };
